@@ -187,6 +187,8 @@ pub enum BrowserEvent {
     Navigated(String),
     /// A link the page wants somewhere else — `target=_blank`, `window.open`, ctrl/⌘-click.
     NewTab(String),
+    /// The page was clicked or focused into, so it has the keyboard (see [`claim_keyboard`]).
+    PageFocused,
     /// A script run for a pending command finished: the token it was started under, and the
     /// webview's JSON-encoded result.
     Script { token: u64, raw: String },
@@ -278,6 +280,10 @@ const NEW_TAB_SCRIPT: &str = r#"
   document.addEventListener('auxclick', function (e) {
     if (e.button === 1) hit(e);
   }, true);
+  // The page took the keyboard: the host moves its own focus off the address field.
+  function took() { window.ipc.postMessage('focus'); }
+  document.addEventListener('mousedown', took, true);
+  document.addEventListener('focusin', took, true);
 })();
 "#;
 
@@ -331,7 +337,9 @@ pub fn open_browser(
                 wry::NewWindowResponse::Deny
             })
             .with_ipc_handler(move |request| {
-                if let Some(url) = request.body().strip_prefix("newtab:")
+                if request.body() == "focus" {
+                    push(&k_ipc, BrowserEvent::PageFocused);
+                } else if let Some(url) = request.body().strip_prefix("newtab:")
                     && newtab_allowed(url, &recent)
                 {
                     push(&k_ipc, BrowserEvent::NewTab(url.to_string()));
@@ -609,21 +617,81 @@ pub fn close(key: &str) {
     let _ = key;
 }
 
-/// Hand an edit shortcut to the page when a webview of `window` holds the keyboard.
-///
-/// A webview is a subview of gpui's own view, and gpui's view answers every key equivalent itself
-/// (`performKeyEquivalent:`) without passing it down — so ⌘C/⌘V/⌘X/⌘A/⌘Z reached whatever gpui
-/// had focused, usually the address field, while the page the user had clicked into never heard
-/// them. When the window's first responder is inside one of this window's webviews, the matching
+// ── The keyboard, when a page holds it (macOS) ──────────────────────────
+//
+// A webview is a subview of gpui's own view, and gpui's view answers every key *equivalent*
+// itself (`performKeyEquivalent:`) without passing it down. AppKit offers two kinds of key that
+// way before the first responder ever sees them: anything with ⌘, and the function keys — the
+// arrows, Page Up/Down, Home, End, forward delete, F1–F19. So with the page clicked into but gpui's
+// focus still on the address field, ⌘C/⌘V went to the field, and an arrow went through gpui's
+// text-input path into the field as its private-use character (U+F700…).
+//
+// Two halves. [`claim_keyboard`] moves gpui's focus off any text field and onto the webview's own
+// focus handle, which has no text input: gpui then has nothing to do with an arrow, reports it
+// unhandled, and AppKit delivers it to the page as an ordinary key — scrolling, caret moves and
+// their modifiers all native. The window's own shortcuts (⌘W, ⌘K, F1) still match, because the
+// handle sits inside the window's key contexts. [`forward_edit_key`] hands the edit shortcuts to
+// the page outright, because the workbench binds ⌘V and ⌘Z itself.
+//
+// Windows needs neither: WebView2 is a window of its own that takes the keyboard natively, so gpui
+// never hears a key the page has, and a click back in gpui's area gives gpui's window the keyboard
+// back (`gpui-wry`'s `focus_parent`).
+
+/// The webview of `window` the macOS keyboard is in, and the native responder that has it.
+#[cfg(target_os = "macos")]
+fn keyboard_page(
+    window: &Window,
+    cx: &App,
+) -> Option<(
+    gpui::Entity<gpui_wry::WebView>,
+    objc2::rc::Retained<objc2_app_kit::NSResponder>,
+)> {
+    use objc2_app_kit::NSView;
+    use wry::WebViewExtMacOS as _;
+
+    let id = window.window_handle().window_id();
+    let views: Vec<_> = platform::VIEWS.with(|views| {
+        views
+            .borrow()
+            .values()
+            .filter(|slot| slot.window == id && slot.shown)
+            .map(|slot| slot.view.clone())
+            .collect()
+    });
+    views.into_iter().find_map(|view| {
+        let webview = view.read(cx).raw().webview();
+        let responder = webview.window()?.firstResponder()?;
+        let inside = responder
+            .downcast_ref::<NSView>()
+            .is_some_and(|focused| focused.isDescendantOf(&webview));
+        inside.then_some((view, responder))
+    })
+}
+
+/// Put gpui's focus on the webview the keyboard is in, when the page has it and gpui's focus is
+/// elsewhere. Idempotent; a no-op everywhere but macOS. Called on a key (late for that key, in time
+/// for the next) and when a browser page reports a click ([`BrowserEvent::PageFocused`]) — before
+/// the first key. Keyed on the native first responder, never on the page's word: a page that
+/// focuses an input of its own while the user types an address must not take the field away.
+pub fn claim_keyboard(window: &mut Window, cx: &mut App) {
+    #[cfg(target_os = "macos")]
+    if let Some((view, _)) = keyboard_page(window, cx) {
+        let handle = gpui::Focusable::focus_handle(view.read(cx), cx);
+        if !handle.is_focused(window) {
+            window.focus(&handle, cx);
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (window, cx);
+}
+
+/// Hand an edit shortcut to the page when a webview of `window` holds the keyboard: the matching
 /// selector (`copy:`, `paste:` …) is sent down the responder chain from it, the way an Edit menu
 /// would, and `true` says gpui must not dispatch the key. Anywhere else this is `false` and gpui
-/// keeps the key. macOS only; Windows' WebView2 has its own keyboard focus.
+/// keeps the key. macOS only (see above).
 pub fn forward_edit_key(keystroke: &gpui::Keystroke, window: &Window, cx: &App) -> bool {
     #[cfg(target_os = "macos")]
     {
-        use objc2_app_kit::NSView;
-        use wry::WebViewExtMacOS as _;
-
         let modifiers = &keystroke.modifiers;
         if !modifiers.platform || modifiers.control || modifiers.alt || modifiers.function {
             return false;
@@ -637,33 +705,14 @@ pub fn forward_edit_key(keystroke: &gpui::Keystroke, window: &Window, cx: &App) 
             ("z", true) => objc2::sel!(redo:),
             _ => return false,
         };
-        let id = window.window_handle().window_id();
-        let views: Vec<_> = platform::VIEWS.with(|views| {
-            views
-                .borrow()
-                .values()
-                .filter(|slot| slot.window == id && slot.shown)
-                .map(|slot| slot.view.clone())
-                .collect()
-        });
-        for view in views {
-            let webview = view.read(cx).raw().webview();
-            let Some(responder) = webview.window().and_then(|window| window.firstResponder())
-            else {
-                continue;
-            };
-            let inside = responder
-                .downcast_ref::<NSView>()
-                .is_some_and(|focused| focused.isDescendantOf(&webview));
-            if inside {
-                // Whether or not the page had anything to do with it (an undo with nothing to
-                // undo), the key was the page's: it must not fall through to the address field.
-                // SAFETY: a standard edit selector, sent with no argument the way a menu sends it.
-                let _ = unsafe { responder.tryToPerform_with(action, None) };
-                return true;
-            }
-        }
-        false
+        let Some((_, responder)) = keyboard_page(window, cx) else {
+            return false;
+        };
+        // Whether or not the page had anything to do with it (an undo with nothing to undo), the
+        // key was the page's: it must not fall through to the address field.
+        // SAFETY: a standard edit selector, sent with no argument the way a menu sends it.
+        let _ = unsafe { responder.tryToPerform_with(action, None) };
+        true
     }
     #[cfg(not(target_os = "macos"))]
     {

@@ -1750,13 +1750,16 @@ impl AppState {
         // checkbox would be one more thing to keep in step.
         subscriptions.push(super::vim::install(window, cx));
 
-        // The edit keys belong to a browser page the user clicked into, not to whatever gpui has
-        // focused: `ui::web_view::forward_edit_key` says why.
+        // A key belongs to the browser page the user clicked into, not to whatever gpui has
+        // focused: the page's webview takes gpui's focus (for the keys after this one), and the
+        // edit shortcuts are handed to the page. `ui::web_view` says why.
         let handle = window.window_handle();
         subscriptions.push(cx.intercept_keystrokes(move |event, window, cx| {
-            if window.window_handle() == handle
-                && crate::ui::web_view::forward_edit_key(&event.keystroke, window, cx)
-            {
+            if window.window_handle() != handle {
+                return;
+            }
+            crate::ui::web_view::claim_keyboard(window, cx);
+            if crate::ui::web_view::forward_edit_key(&event.keystroke, window, cx) {
                 cx.stop_propagation();
             }
         }));
@@ -1909,6 +1912,7 @@ impl AppState {
             browser_pending: Default::default(),
             browser_more: None,
             browser_width_prompt: None,
+            browser_claim_keyboard: false,
             logs: LogState::default(),
             search: SearchState::new(search_query.clone()),
             suggest: None,

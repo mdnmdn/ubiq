@@ -164,9 +164,14 @@ width narrows the webview's own rectangle, centred and clamped to the tab, so th
 it would on that screen; the user agent and pixel density stay the desktop's. A tab is loading from
 the moment it is opened or an address is entered, not from the page's commit: a server that is
 slow or refuses the connection never commits, and the loader lets go after 30s. A move within the
-page (the address differs only after `#`) is not a load. On macOS ⌘C/⌘X/⌘V/⌘A/⌘Z/⇧⌘Z go to the
-page when it holds the keyboard (`web_view::forward_edit_key` sends `copy:`/`paste:`/… down the
-webview's responder chain), and to the address field or wherever gpui's focus is otherwise. The field sends a query to the **search engine** of the Ubiq settings' Browser
+page (the address differs only after `#`) is not a load. **A page the user clicked into holds the
+keyboard.** On macOS gpui's view sees ⌘ keys and function keys (arrows, Page Up/Down, Home, End,
+forward delete, F-keys) before the page does, so a click in the page (the page reports it) or the
+first key after one moves gpui's focus onto the webview's own handle (`web_view::claim_keyboard`):
+gpui then leaves those keys to the page, natively, while the window's own shortcuts still match;
+⌘C/⌘X/⌘V/⌘A/⌘Z/⇧⌘Z are handed to the page outright (`web_view::forward_edit_key`, `copy:`/`paste:`/…
+down its responder chain), because the workbench binds ⌘V and ⌘Z itself. On Windows WebView2 is a
+window of its own and takes the keyboard natively. Clicking the address field gives it back. The field sends a query to the **search engine** of the Ubiq settings' Browser
 section (`UiSettings.search_engine`). Cookies and storage live in a **profile**: the project's own
 by default, kept when *Persist profile* is on in both the Ubiq and the project settings' Browser
 sections, or an ephemeral private store when the project's *Private profile* is on

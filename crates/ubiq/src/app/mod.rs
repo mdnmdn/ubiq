@@ -881,6 +881,9 @@ pub struct AppState {
     browser_pending: HashMap<u64, browser::PendingReply>,
     /// The browser tab's open `⋯` menu: which tab, and where it was clicked.
     pub browser_more: Option<(String, (f32, f32))>,
+    /// A browser page reported a click: gpui's focus moves to it on the next frame
+    /// (`ui::web_view::claim_keyboard`).
+    browser_claim_keyboard: bool,
     /// The `⋯` menu's *Custom width…* question, while it is up.
     pub browser_width_prompt: Option<browser::WidthPrompt>,
 

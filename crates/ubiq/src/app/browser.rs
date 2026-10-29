@@ -231,6 +231,9 @@ impl AppState {
         if let Some(project) = self.project(cx) {
             self.ensure_browser_history(project);
         }
+        if std::mem::take(&mut self.browser_claim_keyboard) {
+            web_view::claim_keyboard(window, cx);
+        }
         for (project, key) in bare {
             self.build_browser_field(project, &key, window, cx);
         }
@@ -380,6 +383,11 @@ impl AppState {
             BrowserEvent::NewTab(url) => {
                 // Deny-and-reopen: the page asked for a window, and a tab is what it gets.
                 self.open_browser(&url, true, cx);
+                return;
+            }
+            // Settled in `settle_browser`, which has the window the focus belongs to.
+            BrowserEvent::PageFocused => {
+                self.browser_claim_keyboard = true;
                 return;
             }
             BrowserEvent::Script { token, raw } => {
