@@ -171,10 +171,14 @@ first key after one moves gpui's focus onto the webview's own handle (`web_view:
 gpui then leaves those keys to the page, natively, while the window's own shortcuts still match;
 ⌘C/⌘X/⌘V/⌘A/⌘Z/⇧⌘Z are handed to the page outright (`web_view::forward_edit_key`, `copy:`/`paste:`/…
 down its responder chain), because the workbench binds ⌘V and ⌘Z itself. On Windows WebView2 is a
-window of its own and takes the keyboard natively. Clicking the address field gives it back. Until
-gpui's focus has followed the page, such a key can still reach the field through the platform text
-path under the glyph AppKit names it by (U+001C–U+001F for the arrows, U+F700–U+F8FF for the
-function keys), so the field refuses any edit containing a control or private-use character. The bar's
+window of its own and takes the keyboard natively. Clicking the address field gives it back. gpui
+offers those keys to its view's text input context before its keymap, and with the page holding the
+keyboard that context typed them as their legacy codes (U+001C–U+001F for the arrows) into the page
+or a gpui field while the page also moved its caret; so while a webview is the window's first
+responder gpui's view answers `inputContext` with nil (`web_view::quiet_host_input_context`, on
+every webview — browser tabs and web panels alike), and the key reaches the page once. The address
+field still refuses any edit containing a control or private-use character (U+F700–U+F8FF), as a
+second guard. The bar's
 load control is one button after Back/Forward: a spinner that stops the load while the page loads,
 the Reload button once it has finished or been stopped. The field sends a query to the **search engine** of the Ubiq settings' Browser
 section (`UiSettings.search_engine`). Cookies and storage live in a **profile**: the project's own

@@ -84,6 +84,8 @@ mod platform {
         let webview = builder
             .build_as_child(&raw)
             .map_err(|err| format!("could not start the embedded browser: {err}"))?;
+        #[cfg(target_os = "macos")]
+        super::quiet_host_input_context(&webview);
 
         let view = cx.new(|cx| WebView::new(webview, window, cx));
         view.update(cx, |view, _| view.hide());
@@ -633,9 +635,103 @@ pub fn close(key: &str) {
 // handle sits inside the window's key contexts. [`forward_edit_key`] hands the edit shortcuts to
 // the page outright, because the workbench binds ⌘V and ⌘Z itself.
 //
-// Windows needs neither: WebView2 is a window of its own that takes the keyboard natively, so gpui
-// never hears a key the page has, and a click back in gpui's area gives gpui's window the keyboard
-// back (`gpui-wry`'s `focus_parent`).
+// That alone still delivered every non-printing key twice. gpui's `performKeyEquivalent:` hands an
+// arrow, Home/End, Page Up/Down, Esc, ⌫ or F-key to its view's text input context
+// (`[[self inputContext] handleEvent:]`) *before* its keymap, whether or not gpui's view is the
+// first responder; with the page holding the keyboard that context is not the active one, and the
+// text system turns the key into its legacy character code — U+001C–U+001F for the arrows — and
+// inserts it, into gpui's text field or into the page. Then gpui reports the key unhandled and
+// AppKit gives the page its real `keyDown:`, so the caret moved *and* a glyph was typed. Every
+// webview, browser tab or web panel alike, sits over the same gpui view, so the fix is that view's:
+// [`quiet_host_input_context`] makes it answer `inputContext` with nil while a native subview of
+// it is the first responder. gpui's `handleEvent:` becomes a message to nil (NO), its keymap still
+// runs (F1, ⌘W), and the key reaches the page once, through the page's own input context.
+//
+// Windows needs none of this: WebView2 is a window of its own that takes the keyboard natively, so
+// gpui never hears a key the page has, and a click back in gpui's area gives gpui's window the
+// keyboard back (`gpui-wry`'s `focus_parent`).
+
+/// The `inputContext` gpui's view class inherited, for [`host_input_context`] to fall back on.
+#[cfg(target_os = "macos")]
+static HOST_INPUT_CONTEXT: std::sync::OnceLock<objc2::runtime::Imp> = std::sync::OnceLock::new();
+
+/// gpui's view's `inputContext` while a webview is on it: nil when a native subview (a webview) is
+/// the window's first responder, the inherited `NSView` answer otherwise.
+#[cfg(target_os = "macos")]
+unsafe extern "C-unwind" fn host_input_context(
+    this: *mut objc2::runtime::AnyObject,
+    cmd: objc2::runtime::Sel,
+) -> *mut objc2::runtime::AnyObject {
+    use objc2_app_kit::NSView;
+
+    // SAFETY: installed only on gpui's view class, an `NSView` subclass, and AppKit calls it on
+    // the main thread.
+    let view = unsafe { &*this.cast::<NSView>() };
+    let page_has_keys = view
+        .window()
+        .and_then(|window| window.firstResponder())
+        .and_then(|responder| {
+            responder
+                .downcast_ref::<NSView>()
+                .map(|focused| !std::ptr::eq(focused, view) && focused.isDescendantOf(view))
+        })
+        .unwrap_or(false);
+    if page_has_keys {
+        return std::ptr::null_mut();
+    }
+    let Some(&inherited) = HOST_INPUT_CONTEXT.get() else {
+        return std::ptr::null_mut();
+    };
+    // SAFETY: `inherited` is `-[NSView inputContext]` (or whatever gpui's class resolved it to),
+    // whose signature is exactly this one.
+    let inherited: unsafe extern "C-unwind" fn(
+        *mut objc2::runtime::AnyObject,
+        objc2::runtime::Sel,
+    ) -> *mut objc2::runtime::AnyObject = unsafe { std::mem::transmute(inherited) };
+    unsafe { inherited(this, cmd) }
+}
+
+/// Install [`host_input_context`] on the class of the gpui view `webview` was built on. Once per
+/// process — every gpui window's view is the same class — and only on gpui's own class, never on
+/// `NSView` itself.
+#[cfg(target_os = "macos")]
+fn quiet_host_input_context(webview: &wry::WebView) {
+    use objc2::runtime::AnyObject;
+    use wry::WebViewExtMacOS as _;
+
+    static INSTALL: std::sync::Once = std::sync::Once::new();
+    // SAFETY: a plain accessor, read on the main thread the webview was just built on.
+    let Some(host) = (unsafe { webview.webview().superview() }) else {
+        return;
+    };
+    let host: &AnyObject = host.as_ref();
+    let class = host.class();
+    if class.name() != c"GPUIView" {
+        tracing::warn!(target: "ubiq::browser", class = ?class.name(), "webview host is not gpui's view; arrows may reach the page twice");
+        return;
+    }
+    INSTALL.call_once(|| {
+        let sel = objc2::sel!(inputContext);
+        let Some(method) = class.instance_method(sel) else {
+            return;
+        };
+        let _ = HOST_INPUT_CONTEXT.set(method.implementation());
+        let imp: unsafe extern "C-unwind" fn(*mut AnyObject, objc2::runtime::Sel) -> *mut AnyObject =
+            host_input_context;
+        // SAFETY: gpui's class does not define `inputContext` itself (it inherits `NSView`'s), so
+        // this adds an override with the inherited one's `@@:` signature; the fallback above calls
+        // the inherited implementation.
+        let added = unsafe {
+            objc2::ffi::class_addMethod(
+                class as *const _ as *mut _,
+                sel,
+                std::mem::transmute::<_, objc2::runtime::Imp>(imp),
+                c"@@:".as_ptr(),
+            )
+        };
+        tracing::debug!(target: "ubiq::browser", added = added.as_bool(), "gpui view's inputContext yields to a focused webview");
+    });
+}
 
 /// The webview of `window` the macOS keyboard is in, and the native responder that has it.
 #[cfg(target_os = "macos")]
