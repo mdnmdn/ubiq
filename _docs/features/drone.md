@@ -90,7 +90,15 @@ deleted, or switched to agent authentication, leaves no material filed under an 
 Ubiq's own binary, and the child's environment carries a profile id and a config root — references,
 never material. The helper mode opens the host's store itself and writes the secret on its own
 standard output, where OpenSSH reads an askpass answer from. The whole path is keychain to helper
-stdout to `ssh`: never `argv`, never a file, never the bus, never the drawing process.
+stdout to `ssh`: never `argv`, never a file, never the bus, never the drawing process. The helper
+answers only a prompt that says `password` or `passphrase`; any other (a host-key `yes/no`) gets
+no answer and a non-zero exit.
+
+**Every `ssh`/`scp` Ubiq spawns hardens the link the same way** (`ubiq_proto::ssh`):
+`StrictHostKeyChecking=accept-new` (trust on first use through `~/.ssh/known_hosts`; a changed key
+is refused) and `ServerAliveInterval=15` / `ServerAliveCountMax=3`. A refused key reaches the
+connect modal as its own sentence (`ssh-keygen -R`), and the reconnect loop stops on it instead of
+retrying.
 
 ### Three lifetimes
 

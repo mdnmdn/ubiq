@@ -856,6 +856,9 @@ fn handshake_failure(
     }
     let code = status.and_then(|status| status.code());
     let said = stderr.trim();
+    if matches!(code, Some(255) | None) && ubiq_proto::ssh::is_host_key_failure(said) {
+        return ConnectFailure::HostKeyChanged(said.to_string());
+    }
     match code {
         // `ssh`'s own failure class — unreachable, refused, or an authentication that did not
         // work. Its sentence is the useful one, so it is what the modal shows.

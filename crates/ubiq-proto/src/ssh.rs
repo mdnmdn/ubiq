@@ -121,6 +121,28 @@ pub fn apply_connection_options(command: &mut Command, profile: &SshProfile, kin
     if !profile.auth.has_secret() {
         command.arg("-o").arg("BatchMode=yes");
     }
+    // Trust on first use through the user's own `~/.ssh/known_hosts`: a new host is recorded
+    // without a prompt (nothing could answer one), a changed key is refused. A dead link is
+    // noticed in ~45 s rather than hanging a session on a silent drop.
+    command.arg("-o").arg("StrictHostKeyChecking=accept-new");
+    command.arg("-o").arg("ServerAliveInterval=15");
+    command.arg("-o").arg("ServerAliveCountMax=3");
+}
+
+/// Whether an askpass prompt asks for a secret Ubiq holds: OpenSSH's `user@host's password:`,
+/// `Enter passphrase for key '…':` and the like. Anything else — the host-key
+/// `Are you sure you want to continue connecting (yes/no)?` above all — is not answered with a
+/// password.
+pub fn is_secret_prompt(prompt: &str) -> bool {
+    let prompt = prompt.to_ascii_lowercase();
+    prompt.contains("password") || prompt.contains("passphrase")
+}
+
+/// Whether `ssh`'s stderr says the far host's key changed or was refused — the one failure a retry
+/// can never fix, and one the user must read as such rather than as "unreachable".
+pub fn is_host_key_failure(stderr: &str) -> bool {
+    stderr.contains("REMOTE HOST IDENTIFICATION HAS CHANGED")
+        || stderr.contains("Host key verification failed")
 }
 
 /// Point `ssh` at Ubiq's own binary for the password prompt, when the profile has a secret filed.
@@ -299,6 +321,40 @@ mod tests {
             );
         }
         assert_eq!(args.last().map(String::as_str), Some("bastion.example"));
+    }
+
+    #[test]
+    fn every_connection_trusts_on_first_use_and_probes_liveness() {
+        for kind in [ConnectionKind::Ssh, ConnectionKind::Scp] {
+            let mut command = Command::new("ssh");
+            apply_connection_options(&mut command, &profile(SshAuth::Agent), kind);
+            let args = args(&command);
+            for expected in [
+                "StrictHostKeyChecking=accept-new",
+                "ServerAliveInterval=15",
+                "ServerAliveCountMax=3",
+            ] {
+                assert!(args.contains(&expected.to_string()), "{expected} in {args:?}");
+            }
+        }
+        let tunnel = tunnel_command(&profile(SshAuth::Agent), None, 1, "db", 5432).unwrap();
+        assert!(args(&tunnel).contains(&"StrictHostKeyChecking=accept-new".to_string()));
+    }
+
+    #[test]
+    fn only_secret_prompts_and_host_key_failures_are_classified() {
+        assert!(is_secret_prompt("ops@bastion.example's password: "));
+        assert!(is_secret_prompt("Enter passphrase for key '/home/o/.ssh/id_ed25519': "));
+        assert!(is_secret_prompt("Password:"));
+        assert!(!is_secret_prompt(
+            "Are you sure you want to continue connecting (yes/no/[fingerprint])? "
+        ));
+        assert!(!is_secret_prompt(""));
+        assert!(is_host_key_failure(
+            "@@@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @@@\nHost key verification failed."
+        ));
+        assert!(is_host_key_failure("Host key verification failed."));
+        assert!(!is_host_key_failure("Connection refused"));
     }
 
     #[test]

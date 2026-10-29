@@ -53,7 +53,8 @@ that opens the settings dialog on the Databases section.
 **A server connection may go through an SSH tunnel.** One naming an SSH profile is dialled — by a
 session and by Test alike — through the system `ssh` with `-N -L 127.0.0.1:<free port>:<host>:<port>`,
 built from the profile by the same argv the drone dial uses (`ubiq_proto::ssh`): `BatchMode=yes`
-unless a secret is filed, which the askpass helper supplies. The host and port in the form are as
+unless a secret is filed, which the askpass helper supplies, plus the shared host-key and
+keep-alive options (`StrictHostKeyChecking=accept-new`, `ServerAliveInterval=15`). The host and port in the form are as
 the SSH machine sees them. The driver dials the local end; the `ssh` lives as long as the session's
 connection, or the Test's thread, and is killed when it goes. A SQLite connection ignores it.
 

@@ -96,6 +96,9 @@ pub enum ConnectFailure {
     Tls(String),
     /// The socket failed, or timed out, somewhere after the connection was made.
     Io(String),
+    /// `ssh` refused the far host's key: it differs from the one in `~/.ssh/known_hosts`. The
+    /// string is `ssh`'s own sentence. No retry fixes it, so the reconnect loop stops on it.
+    HostKeyChanged(String),
     /// The address or the token carried a control character, so no request was sent.
     Untypable(&'static str),
 }
@@ -126,6 +129,12 @@ impl std::fmt::Display for ConnectFailure {
                 write!(f, "the secure connection failed: {reason}")
             }
             ConnectFailure::Io(reason) => write!(f, "the connection failed: {reason}"),
+            ConnectFailure::HostKeyChanged(said) => write!(
+                f,
+                "the host key does not match ~/.ssh/known_hosts — refused, possibly a \
+                 man-in-the-middle. If the host was reinstalled, remove its line with \
+                 `ssh-keygen -R <host>` and connect again. ssh said: {said}"
+            ),
             ConnectFailure::Untypable(part) => {
                 write!(
                     f,
@@ -1998,8 +2007,13 @@ impl AppState {
                     state.attempt = attempt;
                     state.error = failure.to_string();
                 }
-                let delay = Self::backoff_for(attempt);
                 cx.notify();
+                // A changed host key is not transient: the entry stays with the reason on it
+                // and no further attempt is scheduled.
+                if matches!(failure, ConnectFailure::HostKeyChanged(_)) {
+                    return;
+                }
+                let delay = Self::backoff_for(attempt);
                 cx.spawn(async move |this: WeakEntity<Self>, cx| {
                     cx.background_executor().timer(delay).await;
                     let _ = this.update(cx, |this, cx| this.retry_reconnect(key, generation, cx));

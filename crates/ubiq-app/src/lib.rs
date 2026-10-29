@@ -71,6 +71,13 @@ fn askpass() -> Option<i32> {
     let profile = std::env::var(ASKPASS_PROFILE_VAR)
         .ok()
         .filter(|id| !id.is_empty())?;
+    // OpenSSH asks for more than secrets (the host-key "yes/no" above all), with the prompt text
+    // as argv[1]. A password is the answer to a password prompt only; anything else gets no answer.
+    let prompt = std::env::args().nth(1).unwrap_or_default();
+    if !ubiq_proto::ssh::is_secret_prompt(&prompt) {
+        eprintln!("ubiq: not a password prompt, no answer given");
+        return Some(1);
+    }
     let Ok(profile) = profile.parse::<ubiq_proto::ids::SshProfileId>() else {
         eprintln!("ubiq: {ASKPASS_PROFILE_VAR} is not a profile id");
         return Some(2);
