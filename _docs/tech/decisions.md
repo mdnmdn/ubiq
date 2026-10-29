@@ -5595,9 +5595,11 @@ has a second vocabulary to translate into its handlers beside the file family's.
 
 A forwarded port's TCP streams never become `Message` variants. Each carrier opens a second,
 dedicated channel beside the bus's — over RDP a second dynamic virtual channel, `ubiq::tunnel::v1`,
-bridged by the `--rdp` child to a Unix socket of its own; over `ssh` a second exec — carrying
-`tunnel::TunnelFrame` in the bus's own length-prefixed MessagePack framing, credit-limited per
-stream and per channel. A drone that can serve it advertises `tunnel`.
+bridged by the `--rdp` child to a Unix socket of its own; over `ssh` a second exec; to a served
+host (`ubiq --serve`) a second TCP/TLS connection upgraded on `/tunnel` with the attach's token and
+trust — carrying `tunnel::TunnelFrame` in the bus's own length-prefixed MessagePack framing,
+credit-limited per stream and per channel. A drone that can serve it advertises `tunnel` in its
+hello; a served host, in its attach `101`'s `Ubiq-Capabilities` header.
 
 **Why:** it keeps terminal traffic unaffected. The bus is one ordered, unbounded stream per link
 that the panes share, so a download on it would queue in front of every keystroke and every redraw,
@@ -5605,10 +5607,13 @@ and credit on the bus could only slow it, never let a pane overtake it. On its o
 carrier's own multiplexing does that, and tunnel bytes pass no hub, no tape and no dispatch.
 
 **Cost:** every carrier needs a second channel, set up, torn down and bridged on its own, and a
-carrier that cannot open one — a plain socket host today — has no tunnels; the framing is shared
+carrier that cannot open one — a Unix-socket drone today — has no tunnels; the framing is shared
 but the channel's lifecycle is a second thing to get right per carrier. What every carrier shares
 is the window's registry (`ubiq_tunnel::global`), so a carrier contributes only its dial: over
-`ssh` the second exec is `ubiq-drone --tunnel`, over RDP Studio's bridged socket.
+`ssh` the second exec is `ubiq-drone --tunnel`, over RDP Studio's bridged socket, to a served host
+the `/tunnel` upgrade. A served host is a whole workbench on the network, so its tunnels dial only
+its own loopback unless `--tunnel-allow` widens it (`none` turns them off), and the second TLS
+connection never takes a key on first use — it needs the pin or the CA chain the bus dial settled.
 
 ### D228 — A trust-any `https` remote is pinned to its key on first use
 

@@ -15,10 +15,14 @@
 //! - [`Registry`] keeps one manager per saved target, process-wide ([`global`]), under a key the
 //!   carrier chooses: link, down, reconfigure, forget. The carrier is only the dial it hands in.
 //! - [`serve`] is the drone's half: dial what an `Open` names, if the [`AllowList`] admits it.
+//!   A served host (`ubiq --serve`) runs the same half on its `/tunnel` upgrade.
+//! - [`TlsDuplex`] is a TLS session a reader thread and a writer thread share without either
+//!   waiting on the socket for the other — the socket carrier's stream, both ends.
 //!
 //! Plain threads throughout, two per stream and one per listener: nothing on either end runs an
 //! async runtime, and a tunnel is a handful of sockets, not thousands.
 
+mod duplex;
 mod http;
 mod local;
 mod mux;
@@ -29,6 +33,7 @@ mod registry;
 mod remote;
 mod tls;
 
+pub use duplex::TlsDuplex;
 pub use local::{TunnelManager, TunnelStatus};
 pub use registry::{Dial, Live, Registry, global};
 pub use mux::{Incoming, Mux, Recv, TunnelStream};

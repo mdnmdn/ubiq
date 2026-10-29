@@ -472,7 +472,7 @@ impl AppState {
         let save_id = self.bus.remote(id).map(|remote| remote.save_id.clone());
         let label = self.release_host(id, cx);
         if let Some(save_id) = save_id {
-            self.forget_ssh_tunnels(&save_id);
+            self.forget_tunnels(&save_id);
         }
         label
     }

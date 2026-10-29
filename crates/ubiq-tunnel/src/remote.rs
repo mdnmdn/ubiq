@@ -16,6 +16,10 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// A pattern is `host:port`, each side a glob where `*` matches any run of characters; hosts
 /// compare case-insensitively, and an IPv6 host is written bracketed, `[::1]:5432`. `*` alone
 /// admits everything.
+///
+/// A host glob matches the name as asked for, before it is resolved: `10.*` admits
+/// `10.evil.example`, wherever that points. Admit an address range by listing its literal
+/// addresses, never by a glob over them.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AllowList {
     /// `None` admits everything.

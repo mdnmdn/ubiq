@@ -5090,7 +5090,6 @@ fn drones_section(app: &AppState, window: &Window, cx: &mut Context<AppState>) -
              it appears here.",
             theme::text_faint(),
         ));
-        return column(rows);
     }
 
     rows.extend(
@@ -5098,6 +5097,38 @@ fn drones_section(app: &AppState, window: &Window, cx: &mut Context<AppState>) -
             .iter()
             .map(|host| drone_host_section(app, host, window, cx)),
     );
+
+    // Served hosts (`ubiq --serve`) run no drone, but forward ports the same way (`D227`).
+    let served: Vec<_> = app
+        .workbench
+        .settings
+        .host
+        .remote_hosts
+        .iter()
+        .filter(|host| matches!(host.carrier, RemoteCarrier::Socket))
+        .cloned()
+        .collect();
+    if !served.is_empty() {
+        rows.push(heading(
+            "Served hosts",
+            "Hosts reached over a socket (`ubiq --serve`): their tunnels ride a second \
+             connection with the same token and the same pinned key.",
+        ));
+        rows.extend(served.iter().map(|host| {
+            let mut children = vec![label_block(&host.name, &host.address).into_any_element()];
+            children.extend(tunnels_block(app, host, window, cx));
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .pt_3()
+                .pb_4()
+                .border_b_1()
+                .border_color(theme::border())
+                .children(children)
+                .into_any_element()
+        }));
+    }
     column(rows)
 }
 
@@ -5196,7 +5227,7 @@ fn drone_host_section(
         .into_any_element()
 }
 
-/// One saved SSH host's forwarded ports (`D227`): a status line per enabled tunnel while it is
+/// One saved SSH or socket host's forwarded ports (`D227`): a status line per enabled tunnel while it is
 /// attached, and an Edit that opens the shared tunnel form in place. The form saves onto the
 /// host's record; an attached host relinks with the new list.
 fn tunnels_block(
@@ -5257,7 +5288,7 @@ fn tunnels_block(
     }
     let enabled = host.tunnels.iter().filter(|spec| spec.enabled).count();
     let summary = match (host.tunnels.len(), enabled) {
-        (0, _) => "None. A tunnel forwards a port on this machine to one the drone can reach."
+        (0, _) => "None. A tunnel forwards a port on this machine to one the far host can reach."
             .to_string(),
         (all, on) => format!("{all} configured, {on} enabled."),
     };

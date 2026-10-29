@@ -416,8 +416,12 @@ pub fn run(boot: Boot) {
     // After the coordinator, so a client that attaches in the same breath has something to talk to,
     // and instead of the first window: a `--serve` run keeps the terminal it was started in.
     if let Some(serve) = serve {
+        let tunnels = ubiq_host::remote::tunnel_allow(&serve.tunnel_allow).unwrap_or_else(|why| {
+            eprintln!("ubiq: --tunnel-allow: {why}");
+            std::process::exit(2);
+        });
         match serve.tls {
-            None => match ubiq_host::remote::serve(hub, serve.bind) {
+            None => match ubiq_host::remote::serve(hub, serve.bind, tunnels) {
                 Ok(serving) => announce(&serving),
                 // The user asked for a server. Falling through into a window would leave them
                 // with something that looks like it worked and is not listening to anything.
@@ -441,7 +445,7 @@ pub fn run(boot: Boot) {
                     );
                     std::process::exit(2);
                 });
-                match ubiq_host::remote::serve_tls(hub, serve.bind, &cert_pem, &key_pem) {
+                match ubiq_host::remote::serve_tls(hub, serve.bind, &cert_pem, &key_pem, tunnels) {
                     Ok(serving) => announce(&serving),
                     Err(error) => {
                         eprintln!("ubiq: could not serve TLS on {}: {error}", serve.bind);
@@ -738,12 +742,13 @@ fn gui_fatal(message: &str) -> ! {
 }
 
 /// The flags that take a value, so a token following one of them is that value and never a path.
-const VALUE_FLAGS: [&str; 5] = [
+const VALUE_FLAGS: [&str; 6] = [
     "--config-root",
     "--bind",
     "--port",
     "--tls-cert",
     "--tls-key",
+    "--tunnel-allow",
 ];
 
 /// Positional arguments as paths — `ubiq .`, `ubiq some/file` — reaching the same place a Finder
@@ -782,6 +787,10 @@ const SERVE_PORT: u16 = 7420;
 /// `https://` string for it. One without the other is refused — a certificate without its key, or
 /// the reverse, listens to nothing a UI could reach.
 ///
+/// `--tunnel-allow <host:port,...>` (repeatable) says what the tunnel channel on `/tunnel` may
+/// dial (`D227`): this machine's loopback when absent, `none` to turn the channel off. It does not
+/// ask for a server on its own — it only shapes one.
+///
 /// `--serve` takes its value attached with `=` and never separated by a space; `--bind`, `--port`,
 /// `--tls-cert` and `--tls-key` accept either form, because they are consumed by name in
 /// `argv_paths` and so cannot swallow a project path the way a separated `--serve=` value would.
@@ -789,6 +798,8 @@ const SERVE_PORT: u16 = 7420;
 struct ServeOptions {
     bind: SocketAddr,
     tls: Option<(PathBuf, PathBuf)>,
+    /// `--tunnel-allow` values, unparsed ([`ubiq_host::remote::tunnel_allow`]).
+    tunnel_allow: Vec<String>,
 }
 
 fn serve_bind(mut args: impl Iterator<Item = String>) -> Option<ServeOptions> {
@@ -798,10 +809,15 @@ fn serve_bind(mut args: impl Iterator<Item = String>) -> Option<ServeOptions> {
     let mut port: Option<u16> = None;
     let mut tls_cert: Option<PathBuf> = None;
     let mut tls_key: Option<PathBuf> = None;
+    let mut tunnel_allow: Vec<String> = Vec::new();
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--serve" => asked = true,
+            "--tunnel-allow" => tunnel_allow.push(args.next().unwrap_or_else(|| {
+                eprintln!("ubiq: --tunnel-allow wants a value");
+                std::process::exit(2);
+            })),
             "--bind" | "--port" | "--tls-cert" | "--tls-key" => {
                 asked = true;
                 let given = args.next().unwrap_or_else(|| {
@@ -843,6 +859,8 @@ fn serve_bind(mut args: impl Iterator<Item = String>) -> Option<ServeOptions> {
                 } else if let Some(given) = arg.strip_prefix("--tls-key=") {
                     asked = true;
                     tls_key = Some(PathBuf::from(given));
+                } else if let Some(given) = arg.strip_prefix("--tunnel-allow=") {
+                    tunnel_allow.push(given.to_string());
                 }
             }
         }
@@ -867,6 +885,7 @@ fn serve_bind(mut args: impl Iterator<Item = String>) -> Option<ServeOptions> {
             port.or(bind.map(|bind| bind.port())).unwrap_or(SERVE_PORT),
         ),
         tls: tls_cert.zip(tls_key),
+        tunnel_allow,
     })
 }
 
@@ -949,6 +968,12 @@ fn announce(serving: &ubiq_host::remote::Serving) {
         );
     } else {
         println!("The connection is not encrypted — tunnel it if the network is not trusted.");
+    }
+    if serving.tunnels {
+        println!(
+            "Forwarded ports (tunnels) are served to the same token; --tunnel-allow says where \
+             they may dial (default: this machine's loopback; `none` turns them off)."
+        );
     }
 }
 

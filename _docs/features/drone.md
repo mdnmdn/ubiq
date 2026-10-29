@@ -323,6 +323,10 @@ same path on the wrong machine; there is no reply to refuse with, so the tree re
   `https`). Saving writes `SavedRemoteHost.tunnels` and relinks an attached host. The forwarding
   itself is a second `ssh` exec, `ubiq-drone --tunnel`
   ([`../tech/transport-contract.md`](../tech/transport-contract.md), *The tunnel channel*).
+  Below the SSH hosts, a **Served hosts** block lists every saved socket host (`ubiq --serve`) with
+  the same Tunnels block; there the forwarding is a second TCP/TLS connection upgraded on
+  `/tunnel` with the saved token and pinned key, dialling only the served machine's loopback unless
+  it was started with `--tunnel-allow`.
 - **The project dialog's Remote panel** edits the project's origin — runs here, or on a drone with a
   profile or a contributed carrier's target, a folder and a preset — and a form agreeing with the
   record writes nothing.

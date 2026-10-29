@@ -232,7 +232,7 @@ impl AppState {
             self.workbench.settings.failed_hosts.remove(&host.address);
             self.workbench.settings.reconnects.remove(&key);
             self.workbench.remote_manager.tests.remove(&key);
-            self.forget_ssh_tunnels(&host.id);
+            self.forget_tunnels(&host.id);
         }
         self.remember_host_settings();
         cx.notify();
@@ -313,6 +313,7 @@ impl AppState {
                 match serde_json::from_str::<HostSettings>(&blob) {
                     Ok(host) => {
                         self.workbench.settings.host = host;
+                        self.sync_tunnel_pins();
                         self.file_pending_secret();
                         cx.notify();
                     }

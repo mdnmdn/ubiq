@@ -137,8 +137,12 @@ same socket for the life of a session, reading and writing raw frames. **Do not 
 | `STOP_POLL` | 200 ms | How often the writer thread wakes to check whether the reader gave up |
 
 Routes: `GET /attach?token=<token>` with an `Upgrade: ubiq` header → `101 Switching Protocols`
-(then raw frames); a bad or missing token → `401`; a plain `GET /` → `200` with *"this is a Ubiq
-host. attach at /attach?token=<token>."*; anything else → `404`; an oversized header → `400`.
+(then raw frames; `Ubiq-Capabilities: tunnel` when tunnels are on); `GET /tunnel?token=<token>`
+with `Upgrade: ubiq-tunnel` → `101`, then the tunnel channel (`D227`, `--tunnel-allow`, loopback by
+default; `404` when off); a bad or missing token → `401`; a plain `GET /` → `200` with *"this is a
+Ubiq host. attach at /attach?token=<token>."*; anything else → `404`; an oversized header → `400`.
+TLS on both ends runs through `ubiq_tunnel::TlsDuplex` (the session lock is never held across socket
+I/O).
 
 Two details that look like fussiness and are not:
 

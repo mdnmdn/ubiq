@@ -95,6 +95,9 @@ semver = { version = "1", optional = true }
 flate2 = "1"
 # The PKCE verifier and the `state` nonce. A CSPRNG and nothing else. Behind `listener`.
 rand = { version = "0.10", optional = true }
+# The tunnel channel (`D227`) a served host answers on `/tunnel`: the multiplexer, the allow list
+# and the TLS duplex both directions share. A leaf of std threads, no GPUI. Behind `listener`.
+ubiq-tunnel = { path = "../ubiq-tunnel", optional = true }
 # PEM parsing for `--tls-cert`/`--tls-key`: the two files a served host reads its
 # server identity from. A parser, no I/O, no UI. Behind `listener`.
 rustls-pemfile = { version = "2", optional = true }
@@ -180,6 +183,7 @@ listener = [
     "dep:x509-parser",
     "dep:sha2",
     "dep:rustls-pemfile",
+    "dep:ubiq-tunnel",
     "dep:tiny_http",
     "dep:ureq",
     "dep:rand",

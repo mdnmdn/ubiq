@@ -19,11 +19,16 @@
 //! rustls server session first; everything past the handshake — the HTTP upgrade, the pumps —
 //! runs over a [`Socket`] that does not know which it is. A UI dials `https` exactly when the
 //! host was started with `--tls-cert`/`--tls-key`, and `http` otherwise.
+//!
+//! **The tunnel channel is a second upgrade, `/tunnel`** (`D227`), on a connection of its own with
+//! the same token: forwarded ports for a window attached over `/attach`, served by
+//! [`ubiq_tunnel::serve`] under an allow list ([`loopback_tunnels`] unless `--tunnel-allow` says
+//! otherwise). Nothing on it reaches the bus. When it answers, the attach's `101` says so in
+//! [`CAPS_HEADER`].
 
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
@@ -48,27 +53,74 @@ pub struct Serving {
     pub addr: SocketAddr,
     pub token: String,
     pub tls: bool,
+    /// Whether `/tunnel` answers.
+    pub tunnels: bool,
+}
+
+/// The response header an attach's `101` names this host's carrier capabilities in — the socket
+/// carrier's counterpart of a drone hello's `capabilities` ([`ubiq_proto::carrier::CAP_TUNNEL`]
+/// when `/tunnel` answers). Absent is none.
+pub const CAPS_HEADER: &str = "Ubiq-Capabilities";
+
+/// What a served host's tunnel channel dials when `--tunnel-allow` names nothing: this machine's
+/// own loopback and nothing else. A served host is a whole workbench on the network, so its
+/// default is narrower than a drone's (which admits anything the `ssh` login could reach anyway).
+/// Literal addresses, never a glob over them: `127.*` would admit a DNS name like `127.x.example`.
+pub fn loopback_tunnels() -> ubiq_tunnel::AllowList {
+    ubiq_tunnel::AllowList::parse(["localhost:*", "127.0.0.1:*", "[::1]:*"])
+        .expect("the loopback allow list")
+}
+
+/// `--tunnel-allow` values to the tunnel channel's allow list: none at all is
+/// [`loopback_tunnels`], `none` turns the channel off, and anything else is comma-separated
+/// `host:port` globs, `*` admitting everything (`ubiq_tunnel::AllowList::parse`).
+pub fn tunnel_allow(values: &[String]) -> Result<Option<ubiq_tunnel::AllowList>, String> {
+    let patterns: Vec<&str> = values
+        .iter()
+        .flat_map(|value| value.split(','))
+        .map(str::trim)
+        .filter(|pattern| !pattern.is_empty())
+        .collect();
+    if patterns.is_empty() {
+        return Ok(Some(loopback_tunnels()));
+    }
+    if patterns.iter().any(|pattern| pattern.eq_ignore_ascii_case("none")) {
+        return if patterns.len() == 1 {
+            Ok(None)
+        } else {
+            Err("`none` cannot be combined with other patterns".to_string())
+        };
+    }
+    ubiq_tunnel::AllowList::parse(patterns).map(Some)
 }
 
 /// Start the listener on a thread of its own and return immediately.
 ///
 /// `hub` is cloned into the accept loop; the caller keeps its own clone for local windows exactly
-/// as it does today — this adds a second kind of attacher, not a different `Hub`.
-pub fn serve(hub: Hub, bind: SocketAddr) -> io::Result<Serving> {
+/// as it does today — this adds a second kind of attacher, not a different `Hub`. `tunnels`, when
+/// given, opens the tunnel channel on `/tunnel` (`D227`) and is what it may dial; `None` answers
+/// `/tunnel` as a path this host does not serve.
+pub fn serve(
+    hub: Hub,
+    bind: SocketAddr,
+    tunnels: Option<ubiq_tunnel::AllowList>,
+) -> io::Result<Serving> {
     let listener = TcpListener::bind(bind)?;
     let addr = listener.local_addr()?;
     let token = generate_token();
     let accept_token = token.clone();
+    let serving_tunnels = tunnels.is_some();
 
     thread::Builder::new()
         .name("ubiq-remote-listen".to_string())
-        .spawn(move || accept_loop(listener, hub, accept_token, None))
+        .spawn(move || accept_loop(listener, hub, accept_token, None, tunnels))
         .expect("the remote listener thread");
 
     Ok(Serving {
         addr,
         token,
         tls: false,
+        tunnels: serving_tunnels,
     })
 }
 
@@ -83,6 +135,7 @@ pub fn serve_tls(
     bind: SocketAddr,
     cert_pem: &[u8],
     key_pem: &[u8],
+    tunnels: Option<ubiq_tunnel::AllowList>,
 ) -> io::Result<Serving> {
     let certs: Vec<rustls::pki_types::CertificateDer<'static>> =
         rustls_pemfile::certs(&mut &*cert_pem)
@@ -115,16 +168,26 @@ pub fn serve_tls(
     let addr = listener.local_addr()?;
     let token = generate_token();
     let accept_token = token.clone();
+    let serving_tunnels = tunnels.is_some();
 
     thread::Builder::new()
         .name("ubiq-remote-listen".to_string())
-        .spawn(move || accept_loop(listener, hub, accept_token, Some(Arc::new(config))))
+        .spawn(move || {
+            accept_loop(
+                listener,
+                hub,
+                accept_token,
+                Some(Arc::new(config)),
+                tunnels,
+            )
+        })
         .expect("the remote listener thread");
 
     Ok(Serving {
         addr,
         token,
         tls: true,
+        tunnels: serving_tunnels,
     })
 }
 
@@ -186,48 +249,6 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
-/// The TLS half of an accepted connection: one session, shared by the reader and writer pumps
-/// behind a lock. Same shape as the dialer's `SharedTls`, mirrored — see that type for why the
-/// lock is per call rather than per direction.
-#[derive(Clone)]
-struct SharedTls(Arc<Mutex<TlsPair>>);
-
-struct TlsPair {
-    conn: rustls::ServerConnection,
-    sock: TcpStream,
-}
-
-impl Read for SharedTls {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let mut pair = self
-            .0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let TlsPair { conn, sock } = &mut *pair;
-        rustls::Stream::new(conn, sock).read(buf)
-    }
-}
-
-impl Write for SharedTls {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let mut pair = self
-            .0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let TlsPair { conn, sock } = &mut *pair;
-        rustls::Stream::new(conn, sock).write(buf)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        let mut pair = self
-            .0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let TlsPair { conn, sock } = &mut *pair;
-        rustls::Stream::new(conn, sock).flush()
-    }
-}
-
 /// Accept connections until the listener itself fails (the process is going down). One hostile or
 /// slow peer is confined to its own thread, per the loop body below, so it can never block this
 /// one or the coordinator behind `hub`.
@@ -240,6 +261,7 @@ fn accept_loop(
     hub: Hub,
     token: String,
     tls: Option<Arc<rustls::ServerConfig>>,
+    tunnels: Option<ubiq_tunnel::AllowList>,
 ) {
     for incoming in listener.incoming() {
         let stream = match incoming {
@@ -252,9 +274,10 @@ fn accept_loop(
         let hub = hub.clone();
         let token = token.clone();
         let tls = tls.clone();
+        let tunnels = tunnels.clone();
         thread::Builder::new()
             .name("ubiq-remote-conn".to_string())
-            .spawn(move || handle_accepted(stream, hub, token, tls))
+            .spawn(move || handle_accepted(stream, hub, token, tls, tunnels))
             .ok();
     }
 }
@@ -265,6 +288,7 @@ fn handle_accepted(
     hub: Hub,
     token: String,
     tls: Option<Arc<rustls::ServerConfig>>,
+    tunnels: Option<ubiq_tunnel::AllowList>,
 ) {
     let _ = stream.set_nodelay(true);
     let _ = stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT));
@@ -296,6 +320,7 @@ fn handle_accepted(
                 closer,
                 hub,
                 &token,
+                tunnels,
             );
         }
         Some(config) => {
@@ -313,19 +338,20 @@ fn handle_accepted(
                 Ok(clone) => clone,
                 Err(_) => return,
             };
-            let shared = SharedTls(Arc::new(Mutex::new(TlsPair { conn, sock: stream })));
+            // One session for both pumps, never locked across a wait on the socket — so neither
+            // direction holds the other up (`ubiq_tunnel::TlsDuplex`).
+            let shared = ubiq_tunnel::TlsDuplex::new(conn, stream);
             let clearer = shared.clone();
             handle_connection(
                 Box::new(shared.clone()),
                 Box::new(shared),
                 Box::new(move || {
-                    if let Ok(pair) = clearer.0.lock() {
-                        let _ = pair.sock.set_read_timeout(None);
-                    }
+                    let _ = clearer.socket().set_read_timeout(None);
                 }),
                 closer,
                 hub,
                 &token,
+                tunnels,
             );
         }
     }
@@ -336,6 +362,9 @@ fn handle_accepted(
 /// `on_upgrade` runs the moment the `101` is written: the handshake deadline was the
 /// handshake's, not the session's, and a client that says nothing for an hour is an idle
 /// window, not a stalled peer.
+///
+/// `/attach` attaches a client to the bus; `/tunnel`, when `tunnels` is set, serves the tunnel
+/// channel (`D227`) on the connection instead — same token, and nothing on it reaches the bus.
 fn handle_connection(
     mut reader: Box<dyn Socket>,
     mut writer: Box<dyn Socket>,
@@ -343,6 +372,7 @@ fn handle_connection(
     closer: TcpStream,
     hub: Hub,
     token: &str,
+    tunnels: Option<ubiq_tunnel::AllowList>,
 ) {
     let request = match read_request(&mut reader) {
         Ok(request) => request,
@@ -355,13 +385,60 @@ fn handle_connection(
                 let _ = write_response(&mut writer, 401, "Unauthorized", "bad or missing token");
                 return;
             }
-            if write_response_line(&mut writer, "101 Switching Protocols").is_err() {
+            let caps: &[&str] = if tunnels.is_some() {
+                &[ubiq_proto::carrier::CAP_TUNNEL]
+            } else {
+                &[]
+            };
+            if write_response_line(&mut writer, "101 Switching Protocols", caps).is_err() {
                 return;
             }
             // The deadline was the handshake's, not the session's: a client that says nothing for
             // an hour is an idle window, not a stalled peer.
             on_upgrade();
             pump(reader, writer, Box::new(SocketCloser(closer)), hub);
+        }
+        Request::Tunnel { token: presented } => {
+            // Off is indistinguishable from a path this host never served.
+            let Some(allow) = tunnels else {
+                let _ = write_response(&mut writer, 404, "Not Found", "not found");
+                return;
+            };
+            if !constant_time_eq(presented.as_bytes(), token.as_bytes()) {
+                let _ = write_response(&mut writer, 401, "Unauthorized", "bad or missing token");
+                return;
+            }
+            if writer
+                .write_all(
+                    b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: ubiq-tunnel\r\n\
+                      Connection: Upgrade\r\n\r\n",
+                )
+                .is_err()
+            {
+                return;
+            }
+            // The peer holds the token; from here it is a link, idle between streams by design.
+            on_upgrade();
+            let shut = closer.try_clone().ok();
+            let mux = match ubiq_tunnel::Mux::drone(
+                reader,
+                writer,
+                Some(Box::new(move || {
+                    if let Some(sock) = shut {
+                        let _ = sock.shutdown(Shutdown::Both);
+                    }
+                })),
+            ) {
+                Ok(mux) => mux,
+                Err(error) => {
+                    tracing::warn!(target: "tunnel", "remote: the tunnel hello failed: {error}");
+                    let _ = closer.shutdown(Shutdown::Both);
+                    return;
+                }
+            };
+            ubiq_tunnel::serve(&mux, &allow);
+            mux.close();
+            let _ = closer.shutdown(Shutdown::Both);
         }
         Request::Root => {
             let _ = write_response(
@@ -383,6 +460,8 @@ fn handle_connection(
 enum Request {
     /// `GET /attach?token=<token>` with an `Upgrade: ubiq` header.
     Attach { token: String },
+    /// `GET /tunnel?token=<token>` with an `Upgrade: ubiq-tunnel` header.
+    Tunnel { token: String },
     /// A plain `GET /`.
     Root,
     /// Anything else recognisable as an HTTP request.
@@ -437,12 +516,17 @@ fn read_request(stream: &mut dyn Read) -> io::Result<Request> {
         return Ok(Request::Root);
     }
 
-    let Some(query) = path.strip_prefix("/attach?") else {
+    let (query, protocol, tunnel) = if let Some(query) = path.strip_prefix("/attach?") {
+        (query, "ubiq", false)
+    } else if let Some(query) = path.strip_prefix("/tunnel?") {
+        (query, "ubiq-tunnel", true)
+    } else {
         return Ok(Request::Other);
     };
     let upgraded = lines.iter().skip(1).any(|line| {
         line.split_once(':').is_some_and(|(name, value)| {
-            name.trim().eq_ignore_ascii_case("upgrade") && value.trim().eq_ignore_ascii_case("ubiq")
+            name.trim().eq_ignore_ascii_case("upgrade")
+                && value.trim().eq_ignore_ascii_case(protocol)
         })
     });
     if !upgraded {
@@ -451,9 +535,12 @@ fn read_request(stream: &mut dyn Read) -> io::Result<Request> {
     let token = query
         .split('&')
         .find_map(|pair| pair.strip_prefix("token="))
-        .unwrap_or("");
-    Ok(Request::Attach {
-        token: token.to_string(),
+        .unwrap_or("")
+        .to_string();
+    Ok(if tunnel {
+        Request::Tunnel { token }
+    } else {
+        Request::Attach { token }
     })
 }
 
@@ -497,14 +584,21 @@ fn write_response(stream: &mut dyn Write, code: u16, reason: &str, body: &str) -
     stream.write_all(response.as_bytes())
 }
 
-fn write_response_line(stream: &mut dyn Write, status: &str) -> io::Result<()> {
+/// The attach's `101`, naming `caps` in [`CAPS_HEADER`] when there are any.
+fn write_response_line(stream: &mut dyn Write, status: &str, caps: &[&str]) -> io::Result<()> {
+    let caps = if caps.is_empty() {
+        String::new()
+    } else {
+        format!("{CAPS_HEADER}: {}\r\n", caps.join(", "))
+    };
     stream.write_all(
-        format!("HTTP/1.1 {status}\r\nUpgrade: ubiq\r\nConnection: Upgrade\r\n\r\n").as_bytes(),
+        format!("HTTP/1.1 {status}\r\nUpgrade: ubiq\r\nConnection: Upgrade\r\n{caps}\r\n")
+            .as_bytes(),
     )
 }
 
 /// Ending a TCP session's read direction: shut the kernel socket down while a handle still
-/// exists. Dropping a TLS `SharedTls` or one TCP clone does not send EOF while the reader holds
+/// exists. Dropping a `TlsDuplex` handle or one TCP clone does not send EOF while the reader holds
 /// the other half, so the host would never see `Gone` and would not reap panes.
 struct SocketCloser(TcpStream);
 

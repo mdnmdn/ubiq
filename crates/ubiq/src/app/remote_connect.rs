@@ -155,20 +155,38 @@ impl std::fmt::Display for ConnectFailure {
     }
 }
 
-/// The `GET /attach…` request text, factored out so a test can pin down its exact shape with no
-/// socket at all.
-///
-/// The token rides the query string, matching `ubiq_host::remote::read_request`'s own parsing —
-/// see that function's `path.strip_prefix("/attach?")` and the `token=` lookup right after it.
-fn attach_request(address: &str, token: &str) -> String {
-    format!(
-        "GET /attach?token={token} HTTP/1.1\r\n\
-         Host: {address}\r\n\
-         Upgrade: ubiq\r\n\
-         Connection: Upgrade\r\n\
-         \r\n"
-    )
+/// Which of a served host's two upgrades a dial asks for: the bus, or the tunnel channel
+/// (`D227`) — a connection of its own, same token, that never reaches the bus.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Upgrade {
+    Attach,
+    Tunnel,
 }
+
+impl Upgrade {
+    /// The `GET /attach…` or `GET /tunnel…` request text, factored out so a test can pin down its
+    /// exact shape with no socket at all.
+    ///
+    /// The token rides the query string, matching `ubiq_host::remote::read_request`'s own
+    /// parsing — its path prefixes and the `token=` lookup right after them.
+    fn request(self, address: &str, token: &str) -> String {
+        let (path, protocol) = match self {
+            Upgrade::Attach => ("attach", "ubiq"),
+            Upgrade::Tunnel => ("tunnel", "ubiq-tunnel"),
+        };
+        format!(
+            "GET /{path}?token={token} HTTP/1.1\r\n\
+             Host: {address}\r\n\
+             Upgrade: {protocol}\r\n\
+             Connection: Upgrade\r\n\
+             \r\n"
+        )
+    }
+}
+
+/// The response header an attach's `101` names the host's carrier capabilities in —
+/// `ubiq_host::remote::CAPS_HEADER`, which this crate cannot name.
+const CAPS_HEADER: &str = "ubiq-capabilities";
 
 /// Pull the numeric status out of a line like `HTTP/1.1 101 Switching Protocols`.
 fn parse_status_code(status_line: &str) -> Option<u16> {
@@ -212,10 +230,13 @@ fn read_capped_line(
 }
 
 /// Read the response's status line and headers up to the blank line that ends them, and no
-/// further — see [`read_capped_line`]'s comment on why stopping exactly there matters.
-fn read_response_status(stream: &mut dyn Read) -> Result<u16, ConnectFailure> {
+/// further — see [`read_capped_line`]'s comment on why stopping exactly there matters. With the
+/// status, the capabilities [`CAPS_HEADER`] names that this end knows — only
+/// [`ubiq_proto::carrier::CAP_TUNNEL`] — and none when it is absent.
+fn read_response_status(stream: &mut dyn Read) -> Result<(u16, Vec<String>), ConnectFailure> {
     let mut total = 0usize;
     let mut status_line: Option<String> = None;
+    let mut caps = Vec::new();
     loop {
         let mut line = String::new();
         let read = read_capped_line(stream, &mut line, MAX_HEADER - total)
@@ -236,6 +257,18 @@ fn read_response_status(stream: &mut dyn Read) -> Result<u16, ConnectFailure> {
         let trimmed = line.trim_end_matches(['\r', '\n']);
         if status_line.is_none() {
             status_line = Some(trimmed.to_string());
+        } else if let Some((name, value)) = trimmed.split_once(':')
+            && name.trim().eq_ignore_ascii_case(CAPS_HEADER)
+        {
+            caps.extend(
+                value
+                    .split(',')
+                    .map(str::trim)
+                    // Only the capabilities this end acts on: an unknown name is dropped here
+                    // rather than carried into the connection for something to match by mistake.
+                    .filter(|cap| *cap == ubiq_proto::carrier::CAP_TUNNEL)
+                    .map(str::to_string),
+            );
         }
         if trimmed.is_empty() {
             break;
@@ -243,7 +276,8 @@ fn read_response_status(stream: &mut dyn Read) -> Result<u16, ConnectFailure> {
     }
     let status_line =
         status_line.ok_or_else(|| ConnectFailure::Refused("empty response".to_string()))?;
-    parse_status_code(&status_line).ok_or(ConnectFailure::Refused(status_line))
+    let status = parse_status_code(&status_line).ok_or(ConnectFailure::Refused(status_line))?;
+    Ok((status, caps))
 }
 
 /// What a dial needs. The modal owns these as fields and inputs; the reconnect loop and the
@@ -271,12 +305,21 @@ fn dial(address: &str, token: &str) -> Result<Client, ConnectFailure> {
         trust_insecure: false,
         tls_pin: None,
     })
-    .map(|(client, _)| client)
+    .map(|dial| dial.client)
 }
 
-/// [`dial_raw`], then the pumps behind a `Client`. With it, the key pin this dial learned — only
-/// ever on a `trust_insecure` host's first use; the caller files it on the saved entry.
-fn dial_with(params: &DialParams) -> Result<(Client, Option<String>), ConnectFailure> {
+/// What a socket dial that attached hands back.
+pub(super) struct SocketDial {
+    pub client: Client,
+    /// The key pin this dial learned — only ever on a `trust_insecure` host's first use; the
+    /// caller files it on the saved entry.
+    pub learned_pin: Option<String>,
+    /// The carrier capabilities the host's `101` named (`tunnel`, when `/tunnel` answers).
+    pub caps: Vec<String>,
+}
+
+/// [`dial_raw`], then the pumps behind a `Client`.
+fn dial_with(params: &DialParams) -> Result<SocketDial, ConnectFailure> {
     let session = dial_raw(params)?;
     let (client, detached) = bus::detached();
     let closer = session.closer;
@@ -288,7 +331,42 @@ fn dial_with(params: &DialParams) -> Result<(Client, Option<String>), ConnectFai
         }),
         detached,
     );
-    Ok((client, session.learned_pin))
+    Ok(SocketDial {
+        client,
+        learned_pin: session.learned_pin,
+        caps: session.caps,
+    })
+}
+
+/// Open a saved socket host's tunnel channel (`D227`): a second connection beside the bus's, the
+/// `/tunnel` upgrade with the same token, and the window's end of a [`ubiq_tunnel::Mux`] on it.
+///
+/// **Never trust on first use here.** An `https` host that trusts any certificate must already
+/// have its key pinned — by the bus dial, which a person started — or this refuses: a second
+/// connection is not a second chance for whoever answers to be believed.
+pub(super) fn open_socket_tunnel(
+    params: &DialParams,
+    rate: Option<u64>,
+) -> Result<ubiq_tunnel::Mux, String> {
+    if params.scheme == RemoteScheme::Https && params.trust_insecure && params.tls_pin.is_none() {
+        return Err("no key is pinned for this host \u{2014} connect from the panel to pin one".into());
+    }
+    let session = upgrade(params, Upgrade::Tunnel).map_err(|failure| match failure {
+        ConnectFailure::Refused(why) if why.ends_with("404") => {
+            "this host serves no tunnels \u{2014} start it with tunnels on".to_string()
+        }
+        other => other.to_string(),
+    })?;
+    let closer = session.closer;
+    ubiq_tunnel::Mux::window(
+        session.reader,
+        session.writer,
+        rate,
+        Some(Box::new(move || {
+            let _ = closer.shutdown(Shutdown::Both);
+        })),
+    )
+    .map_err(|error| format!("the tunnel hello failed: {error}"))
 }
 
 /// One side of [`dial_raw`]'s answer: the two stream halves plus a TCP clone used only to
@@ -299,6 +377,8 @@ struct RawSession {
     closer: TcpStream,
     /// The key accepted on first use, when this dial was one (`ubiq_tunnel::pin::Trust::FirstUse`).
     learned_pin: Option<String>,
+    /// The carrier capabilities the `101` named.
+    caps: Vec<String>,
 }
 
 /// Dial and run the HTTP upgrade, handing back the two stream halves with no pumps behind them.
@@ -308,6 +388,11 @@ struct RawSession {
 /// `HostInfo` greeting), then dropped. Split out so the test path never registers a `Client`
 /// nobody would drain.
 fn dial_raw(params: &DialParams) -> Result<RawSession, ConnectFailure> {
+    upgrade(params, Upgrade::Attach)
+}
+
+/// Dial and run `kind`'s HTTP upgrade — [`dial_raw`]'s body, shared with the tunnel channel's.
+fn upgrade(params: &DialParams, kind: Upgrade) -> Result<RawSession, ConnectFailure> {
     // Before the socket, not after: a request that must not be sent is one this never builds.
     if !is_typable(&params.address) {
         return Err(ConnectFailure::Untypable("address"));
@@ -344,13 +429,15 @@ fn dial_raw(params: &DialParams) -> Result<RawSession, ConnectFailure> {
         RemoteScheme::Http => {
             let mut stream = Box::new(stream);
             stream
-                .write_all(attach_request(&params.address, &params.token).as_bytes())
+                .write_all(kind.request(&params.address, &params.token).as_bytes())
                 .map_err(|error| ConnectFailure::Io(error.to_string()))?;
-            match read_response_status(&mut stream)? {
-                101 => {}
-                401 => return Err(ConnectFailure::TokenRejected),
-                other => return Err(ConnectFailure::Refused(format!("host answered {other}"))),
-            }
+            let caps = match read_response_status(&mut stream)? {
+                (101, caps) => caps,
+                (401, _) => return Err(ConnectFailure::TokenRejected),
+                (other, _) => {
+                    return Err(ConnectFailure::Refused(format!("host answered {other}")));
+                }
+            };
             // The deadline was the handshake's, not the session's: a client that says nothing
             // for an hour is an idle window, not a stalled peer.
             stream
@@ -367,35 +454,41 @@ fn dial_raw(params: &DialParams) -> Result<RawSession, ConnectFailure> {
                 writer: stream as Box<dyn Socket>,
                 closer,
                 learned_pin: None,
+                caps,
             })
         }
         RemoteScheme::Https => {
             let trust =
                 ubiq_tunnel::pin::Trust::for_host(params.tls_pin.as_deref(), params.trust_insecure);
-            let (mut pair, learned_pin) = tls_handshake(stream, &params.address, trust)?;
-            rustls::Stream::new(&mut pair.conn, &mut pair.sock)
-                .write_all(attach_request(&params.address, &params.token).as_bytes())
-                .map_err(|error| ConnectFailure::Io(error.to_string()))?;
-            let status = {
-                let mut io = rustls::Stream::new(&mut pair.conn, &mut pair.sock);
-                read_response_status(&mut io)?
-            };
-            match status {
-                101 => {}
-                401 => return Err(ConnectFailure::TokenRejected),
-                other => return Err(ConnectFailure::Refused(format!("host answered {other}"))),
+            // The tunnel channel only ever follows a bus dial that settled the trust: never a
+            // first use of its own (`open_socket_tunnel`).
+            if kind == Upgrade::Tunnel && trust == ubiq_tunnel::pin::Trust::FirstUse {
+                return Err(ConnectFailure::Tls("no key is pinned for this host".to_string()));
             }
-            let _ = pair.sock.set_read_timeout(None);
-            let closer = pair
-                .sock
+            let (conn, sock, learned_pin) = tls_handshake(stream, &params.address, trust)?;
+            let closer = sock
                 .try_clone()
                 .map_err(|error| ConnectFailure::Io(error.to_string()))?;
-            let shared = SharedTls(Arc::new(Mutex::new(pair)));
+            // One session for both pumps, never locked across a wait on the socket — so neither
+            // direction holds the other up (`ubiq_tunnel::TlsDuplex`).
+            let mut shared = ubiq_tunnel::TlsDuplex::new(conn, sock);
+            shared
+                .write_all(kind.request(&params.address, &params.token).as_bytes())
+                .map_err(|error| ConnectFailure::Io(error.to_string()))?;
+            let caps = match read_response_status(&mut shared)? {
+                (101, caps) => caps,
+                (401, _) => return Err(ConnectFailure::TokenRejected),
+                (other, _) => {
+                    return Err(ConnectFailure::Refused(format!("host answered {other}")));
+                }
+            };
+            let _ = closer.set_read_timeout(None);
             Ok(RawSession {
                 reader: Box::new(shared.clone()),
                 writer: Box::new(shared),
                 closer,
                 learned_pin,
+                caps,
             })
         }
     }
@@ -404,49 +497,10 @@ fn dial_raw(params: &DialParams) -> Result<RawSession, ConnectFailure> {
 /// A socket half the pumps can own: anything readable, writable and sendable across threads.
 ///
 /// Plaintext dials hand over a `TcpStream` and its `try_clone`; TLS dials hand over two handles
-/// to the same shared session (rustls has no `try_clone`, so the session is locked per call).
+/// to the same [`ubiq_tunnel::TlsDuplex`] (rustls has no `try_clone`).
 trait Socket: Read + Write + Send + 'static {}
 
 impl<T: Read + Write + Send + 'static> Socket for T {}
-
-/// The TLS half of a dial: one session, shared by the reader and writer pumps behind a lock.
-///
-/// rustls has no `try_clone`, so the two directions hold handles to the same session and take
-/// the lock per call — short enough that a frame write never blocks a frame read for long, and
-/// the only alternative is a second TLS session the host would read as a second client.
-#[derive(Clone)]
-struct SharedTls(Arc<Mutex<TlsPair>>);
-
-struct TlsPair {
-    conn: rustls::ClientConnection,
-    sock: TcpStream,
-}
-
-fn lock_pair(pair: &Mutex<TlsPair>) -> std::sync::MutexGuard<'_, TlsPair> {
-    pair.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-impl Read for SharedTls {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let mut pair = lock_pair(&self.0);
-        let TlsPair { conn, sock } = &mut *pair;
-        rustls::Stream::new(conn, sock).read(buf)
-    }
-}
-
-impl Write for SharedTls {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let mut pair = lock_pair(&self.0);
-        let TlsPair { conn, sock } = &mut *pair;
-        rustls::Stream::new(conn, sock).write(buf)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        let mut pair = lock_pair(&self.0);
-        let TlsPair { conn, sock } = &mut *pair;
-        rustls::Stream::new(conn, sock).flush()
-    }
-}
 
 /// Wrap a connected socket in TLS and run the handshake to completion.
 ///
@@ -460,7 +514,7 @@ fn tls_handshake(
     sock: TcpStream,
     address: &str,
     trust: ubiq_tunnel::pin::Trust,
-) -> Result<(TlsPair, Option<String>), ConnectFailure> {
+) -> Result<(rustls::ClientConnection, TcpStream, Option<String>), ConnectFailure> {
     use rustls::pki_types::ServerName;
 
     let host = address
@@ -501,7 +555,7 @@ fn tls_handshake(
         }
     }
     let learned = if first_use { presented() } else { None };
-    Ok((TlsPair { conn, sock }, learned))
+    Ok((conn, sock, learned))
 }
 
 /// Start the session a finished drone handshake earned: a detached [`Client`] and the pump behind
@@ -603,7 +657,7 @@ pub(super) fn spawn_pump<R, W>(
                     }
                 }
             }
-            // Close the far end while a handle still exists. Dropping a TLS `SharedTls` or one
+            // Close the far end while a handle still exists. Dropping a `TlsDuplex` handle or one
             // TCP clone does not send EOF while the reader holds the other half, so the host
             // would never see `Gone` and would not reap panes.
             closer();
@@ -911,7 +965,7 @@ impl AppState {
     fn land_remote_connect(
         &mut self,
         attempt: AttemptId,
-        outcome: Result<(Client, Option<String>), ConnectFailure>,
+        outcome: Result<SocketDial, ConnectFailure>,
         save_id: String,
         saved_name: Option<String>,
         cx: &mut Context<Self>,
@@ -942,7 +996,11 @@ impl AppState {
         let modal = self.workbench.remote_connect.clone().unwrap_or_default();
 
         match outcome {
-            Ok((client, learned_pin)) => {
+            Ok(SocketDial {
+                client,
+                learned_pin,
+                caps,
+            }) => {
                 // A reconnect keeps the name the host was saved under; a fresh dial has none yet,
                 // so the address it just proved reachable at becomes its name — the same thing
                 // `RemoteConn::label` already showed for it before there was a saved-hosts list.
@@ -965,7 +1023,7 @@ impl AppState {
                 if !token.is_empty() {
                     host_secrets::save_token(&host_secrets::key_for(&saved, &address), &token);
                 }
-                self.attach_remote(
+                let host_id = self.attach_remote(
                     client,
                     label.clone(),
                     saved,
@@ -973,6 +1031,8 @@ impl AppState {
                     modal.scheme,
                     cx,
                 );
+                self.bus.set_remote_caps(host_id, caps);
+                self.link_tunnels(host_id);
                 self.workbench.settings.failed_hosts.remove(&address);
                 if let Some(state) = &mut self.workbench.remote_connect {
                     state.step = RemoteConnectStep::Connected { label };
@@ -1035,6 +1095,7 @@ impl AppState {
         };
         if crate::state::remote::set_pin(saved, pin) {
             self.remember_host_settings();
+            self.sync_tunnel_pins();
         }
     }
 
@@ -1365,7 +1426,7 @@ impl AppState {
                     cx,
                 );
                 self.bus.set_remote_caps(host_id, identity.capabilities);
-                self.link_ssh_tunnels(host_id);
+                self.link_tunnels(host_id);
                 self.workbench.settings.failed_hosts.remove(&address);
             }
             Err(failure) => {
@@ -1575,7 +1636,7 @@ impl AppState {
                     cx,
                 );
                 self.bus.set_remote_caps(host_id, identity.capabilities);
-                self.link_ssh_tunnels(host_id);
+                self.link_tunnels(host_id);
                 self.workbench.settings.failed_hosts.remove(&address);
                 if let Some(state) = &mut self.workbench.remote_connect {
                     state.step = RemoteConnectStep::Connected { label };
@@ -1725,7 +1786,11 @@ impl AppState {
                     save_id,
                     address,
                     RemoteScheme::Http,
-                    outcome.map(|dial| (dial.client, None)),
+                    outcome.map(|dial| SocketDial {
+                        client: dial.client,
+                        learned_pin: None,
+                        caps: dial.identity.capabilities,
+                    }),
                     cx,
                 )
             });
@@ -1811,7 +1876,7 @@ impl AppState {
         let Some((save_id, address)) = saved else {
             return;
         };
-        self.ssh_tunnels_down(&save_id);
+        self.tunnels_down(&save_id);
         let key = host_secrets::key_for(&save_id, &address);
         if save_id.is_empty() && self.saved_entry(&key).is_none() {
             if let Some(address) = self.address_of_host(&label) {
@@ -1838,7 +1903,7 @@ impl AppState {
             )
         }) {
             // No reconnect is coming on its own, so nothing for the listeners to wait for.
-            self.forget_ssh_tunnels(&save_id);
+            self.forget_tunnels(&save_id);
             return;
         }
         // A host that trusts any certificate and has no key pinned yet would accept whatever
@@ -2087,7 +2152,7 @@ impl AppState {
                     self.attach_remote(dial.client, label, save_id, address, RemoteScheme::Http, cx);
                 self.bus
                     .set_remote_caps(host_id, dial.identity.capabilities);
-                self.link_ssh_tunnels(host_id);
+                self.link_tunnels(host_id);
             }
             Err(failure) => {
                 let attempt = state.attempt + 1;
@@ -2125,7 +2190,7 @@ impl AppState {
         save_id: String,
         address: String,
         scheme: RemoteScheme,
-        outcome: Result<(Client, Option<String>), ConnectFailure>,
+        outcome: Result<SocketDial, ConnectFailure>,
         cx: &mut Context<Self>,
     ) {
         let current = self.workbench.settings.reconnects.get(&key).cloned();
@@ -2136,13 +2201,19 @@ impl AppState {
             return;
         }
         match outcome {
-            Ok((client, learned_pin)) => {
+            Ok(SocketDial {
+                client,
+                learned_pin,
+                caps,
+            }) => {
                 self.workbench.settings.reconnects.remove(&key);
                 self.workbench.settings.failed_hosts.remove(&address);
                 // Only a "Reconnect now" on an unpinned trust-any host learns one: the loop never
                 // starts on its own for such a host.
                 self.learn_tls_pin(&save_id, &address, learned_pin);
-                self.attach_remote(client, label, save_id, address, scheme, cx);
+                let host_id = self.attach_remote(client, label, save_id, address, scheme, cx);
+                self.bus.set_remote_caps(host_id, caps);
+                self.link_tunnels(host_id);
             }
             Err(failure) => {
                 let attempt = state.attempt + 1;
@@ -2340,11 +2411,24 @@ mod tests {
 
     #[test]
     fn attach_request_matches_the_host_side_handshake() {
-        let request = attach_request("192.168.1.5:7420", "aB3-_xyZ");
+        let request = Upgrade::Attach.request("192.168.1.5:7420", "aB3-_xyZ");
         assert!(request.starts_with("GET /attach?token=aB3-_xyZ HTTP/1.1\r\n"));
         assert!(request.contains("Upgrade: ubiq\r\n"));
         assert!(request.contains("Host: 192.168.1.5:7420\r\n"));
         assert!(request.ends_with("\r\n\r\n"));
+        let request = Upgrade::Tunnel.request("192.168.1.5:7420", "aB3-_xyZ");
+        assert!(request.starts_with("GET /tunnel?token=aB3-_xyZ HTTP/1.1\r\n"));
+        assert!(request.contains("Upgrade: ubiq-tunnel\r\n"));
+    }
+
+    #[test]
+    fn the_capabilities_header_is_read_and_nothing_past_the_head() {
+        let mut head: &[u8] =
+            b"HTTP/1.1 101 Switching Protocols\r\nUbiq-Capabilities: tunnel, x\r\n\r\nFRAME";
+        let (status, caps) = read_response_status(&mut head).unwrap();
+        assert_eq!(status, 101);
+        assert_eq!(caps, vec!["tunnel".to_string()]);
+        assert_eq!(head, b"FRAME");
     }
 
     #[test]
