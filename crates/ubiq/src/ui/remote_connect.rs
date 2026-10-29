@@ -68,27 +68,36 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 ))
                 .into_any_element(),
         ),
-        RemoteConnectStep::Failed { reason } => (
-            "Not connected",
-            div().pt_3().child(modal_note(reason)).into_any_element(),
-            div()
-                .flex()
-                .items_center()
-                .gap_2()
-                .child(ghost_button(
-                    "remote-connect-close-failed",
+        RemoteConnectStep::Failed { reason } => {
+            let mut footer = div().flex().items_center().gap_2().child(ghost_button(
+                "remote-connect-close-failed",
+                None,
+                "Close",
+                cx.listener(|this, _, window, cx| this.cancel_remote_connect(window, cx)),
+            ));
+            // A pinned host's key changed: trusting the new one is a choice, never the default
+            // action, so it is the ghost button and "Try again" keeps the primary.
+            if state.pin_offer.is_some() {
+                footer = footer.child(ghost_button(
+                    "remote-connect-trust-new-key",
                     None,
-                    "Close",
-                    cx.listener(|this, _, window, cx| this.cancel_remote_connect(window, cx)),
-                ))
-                .child(primary_button(
-                    "remote-connect-retry",
-                    None,
-                    "Try again",
-                    cx.listener(|this, _, _, cx| this.retry_remote_connect(cx)),
-                ))
-                .into_any_element(),
-        ),
+                    "Trust new key",
+                    cx.listener(|this, _, _, cx| this.trust_new_remote_key(cx)),
+                ));
+            }
+            (
+                "Not connected",
+                div().pt_3().child(modal_note(reason)).into_any_element(),
+                footer
+                    .child(primary_button(
+                        "remote-connect-retry",
+                        None,
+                        "Try again",
+                        cx.listener(|this, _, _, cx| this.retry_remote_connect(cx)),
+                    ))
+                    .into_any_element(),
+            )
+        }
     };
 
     modal(
@@ -464,8 +473,8 @@ fn socket_body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) 
                 ))
                 .child(label_block(
                     "Trust certificate",
-                    "Skip verification for a self-signed host certificate. Only ever needed \
-                     with https, and shown on the saved entry afterwards.",
+                    "Accept a self-signed host certificate. Only ever needed with https: the \
+                     first connect pins the host's key, and a different key is refused after.",
                 )),
         )
         .into_any_element()

@@ -33,6 +33,8 @@ fn a_record_with_saved_hosts_round_trips() {
                 carrier: RemoteCarrier::Socket,
                 tunnels: Vec::new(),
                 tunnel_rate_bps: None,
+                tls_pin: None,
+                tls_pin_rev: 0,
             },
             SavedRemoteHost {
                 id: String::new(),
@@ -56,6 +58,8 @@ fn a_record_with_saved_hosts_round_trips() {
                     content_types: vec!["text/*".to_string()],
                 }],
                 tunnel_rate_bps: Some(1_000_000),
+                tls_pin: Some("ab".repeat(32)),
+                tls_pin_rev: 0,
             },
         ],
         ..HostSettings::default()
@@ -85,6 +89,8 @@ fn a_saved_host_has_no_field_a_token_could_land_in() {
         carrier: RemoteCarrier::Socket,
         tunnels: Vec::new(),
         tunnel_rate_bps: None,
+        tls_pin: None,
+        tls_pin_rev: 0,
     };
     let json = serde_json::to_value(&record).unwrap();
     let object = json
@@ -105,9 +111,52 @@ fn a_saved_host_has_no_field_a_token_could_land_in() {
             // Where a port forwards to and how fast — addresses and flags, never a credential.
             "tunnels",
             "tunnel_rate_bps",
+            // A hash of the server's public key — what anyone connecting is shown.
+            "tls_pin",
+            "tls_pin_rev",
         ]),
         "a saved host must carry nothing beyond identity and connectivity \u{2014} in particular, no token"
     );
+}
+
+/// A stale window's blob cannot erase or roll back a pin: the on-disk one stands unless the
+/// incoming revision is newer, and a moved address takes the incoming record's.
+#[test]
+fn a_stale_blob_keeps_the_pin_on_disk() {
+    let host = |address: &str, pin: Option<&str>, rev: u64| SavedRemoteHost {
+        id: "h".to_string(),
+        name: "h".to_string(),
+        address: address.to_string(),
+        scheme: RemoteScheme::Https,
+        trust_insecure: true,
+        carrier: RemoteCarrier::Socket,
+        tunnels: Vec::new(),
+        tunnel_rate_bps: None,
+        tls_pin: pin.map(str::to_string),
+        tls_pin_rev: rev,
+    };
+    let held = vec![host("a:1", Some("new"), 2)];
+    let merged = |incoming: SavedRemoteHost| {
+        let mut settings = HostSettings {
+            remote_hosts: vec![incoming],
+            ..HostSettings::default()
+        };
+        settings.keep_newer_pins(&held);
+        settings.remote_hosts.remove(0)
+    };
+
+    // Stale: an older revision with no pin, or with the old pin.
+    assert_eq!(merged(host("a:1", None, 1)).tls_pin.as_deref(), Some("new"));
+    assert_eq!(
+        merged(host("a:1", Some("old"), 1)).tls_pin.as_deref(),
+        Some("new")
+    );
+    // Same revision, another value: disk stands.
+    assert_eq!(merged(host("a:1", None, 2)).tls_pin.as_deref(), Some("new"));
+    // A deliberate forget, newer than disk: taken.
+    assert_eq!(merged(host("a:1", None, 3)).tls_pin, None);
+    // A moved address: the incoming record's.
+    assert_eq!(merged(host("b:1", None, 1)).tls_pin, None);
 }
 
 /// Schema seventeen's own `RemoteCarrier::Ssh` — written before `preset` existed — still parses,

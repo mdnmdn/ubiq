@@ -117,7 +117,11 @@ fn saved_row(
         RemoteScheme::Http => format!("http://{}", host.address),
         RemoteScheme::Https => format!("https://{}", host.address),
     };
-    if host.trust_insecure {
+    if let Some(pin) = &host.tls_pin {
+        // The head of the hash: enough to compare against `openssl … | sha256sum` by eye.
+        let head: String = pin.chars().take(16).collect();
+        note.push_str(&format!(" · key pinned {head}…"));
+    } else if host.trust_insecure {
         note.push_str(" · certificate not verified");
     }
     if let Some(conn) = conn
@@ -177,6 +181,15 @@ fn saved_row(
             cx.listener(move |this, _, window, cx| {
                 this.connect_saved_host(save_id.clone(), window, cx)
             }),
+        ));
+    }
+    if host.tls_pin.is_some() {
+        let save_id4 = host.id.clone();
+        buttons = buttons.child(ghost_button(
+            element_name(&key, "forget-key"),
+            None,
+            "Forget key",
+            cx.listener(move |this, _, _, cx| this.forget_tls_pin(save_id4.clone(), cx)),
         ));
     }
     buttons = buttons

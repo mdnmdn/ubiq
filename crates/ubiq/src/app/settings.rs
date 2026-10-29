@@ -105,6 +105,10 @@ impl AppState {
                 // Not this form's: `upsert_host` keeps an existing record's tunnels.
                 tunnels: Vec::new(),
                 tunnel_rate_bps: None,
+                // Not this form's either: `upsert_host` keeps the pin unless the address moved,
+                // and a pin learned on this dial is filed after, by `remember_tls_pin`.
+                tls_pin: None,
+                tls_pin_rev: 0,
             },
         );
         self.remember_host_settings();

@@ -5610,6 +5610,27 @@ but the channel's lifecycle is a second thing to get right per carrier. What eve
 is the window's registry (`ubiq_tunnel::global`), so a carrier contributes only its dial: over
 `ssh` the second exec is `ubiq-drone --tunnel`, over RDP Studio's bridged socket.
 
+### D228 — A trust-any `https` remote is pinned to its key on first use
+
+A saved socket host with "trust certificate" ticked accepts any key on its first successful dial and
+records it as `SavedRemoteHost::tls_pin` — SHA-256 of the leaf's DER `SubjectPublicKeyInfo`. From
+then on only that key passes, whatever the chain says; another key is a hard refusal that shows
+both fingerprints and offers "Trust new key". A host that validates against the platform's roots is
+never pinned. Every mode checks the handshake signature (`ubiq_tunnel::pin`).
+
+**Why:** without a pin a trust-any host could never auto-reconnect — the loop would accept whatever
+answered — and a manual reconnect accepted a man in the middle as readily as the host. Pinning
+the key, not the certificate, keeps the pin across a renewal on the same key; leaving CA hosts
+alone keeps a CA's key rotation from turning into a refusal.
+
+**Cost:** the first dial is still unauthenticated — the pin is only as good as that one handshake.
+A host whose key is rotated on purpose refuses until someone clicks "Trust new key" or "Forget
+key", and an edited address or an unticked trust drops the pin. The reconnect loop holds the pin it
+began with and never takes a key on first use — only a person's click does. Because `remote_hosts`
+is otherwise last-writer-wins, the pin carries a revision the host merges on (`tls_pin_rev`) — one
+more field, but no message. Studio's RDP pin hashes the `subjectPublicKey` bits
+rather than the whole SPKI, so the two are separate verifiers with different pin strings.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

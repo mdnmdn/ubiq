@@ -118,6 +118,18 @@ pub struct RemoteConnectState {
     pub preset: DronePreset,
     /// The socket path, in [`ConnectMode::Unix`]. Shown, never edited.
     pub unix_path: String,
+    /// The last dial was refused because the host presented another key than the one it is
+    /// pinned to: the `Failed` step offers "Trust new key". Cleared when a dial starts, so an
+    /// offer never outlives the refusal it answers.
+    pub pin_offer: Option<PinOffer>,
+}
+
+/// A pinned host's key changed: the pin it had, and the key it presented instead. Both are
+/// [`ubiq_tunnel::pin::fingerprint`]s.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PinOffer {
+    pub pinned: String,
+    pub presented: String,
 }
 
 impl Default for RemoteConnectState {
@@ -132,6 +144,7 @@ impl Default for RemoteConnectState {
             profile: None,
             preset: DronePreset::Attached,
             unix_path: String::new(),
+            pin_offer: None,
         }
     }
 }
@@ -238,15 +251,28 @@ pub fn with_default_port(address: &str) -> String {
 /// — and otherwise minted. Pure, so the persistence rule is pinned down with no window.
 pub fn upsert_host(hosts: &mut Vec<SavedRemoteHost>, mut saved: SavedRemoteHost) -> String {
     let existing = if saved.id.is_empty() {
-        hosts.iter_mut().find(|host| host.address == saved.address)
+        hosts
+            .iter_mut()
+            .find(|host| same_address(&host.address, &saved.address))
     } else {
         hosts.iter_mut().find(|host| host.id == saved.id)
     };
     match existing {
         Some(existing) => {
-            // A legacy match keeps the address it was first reached at; an id match moves it.
+            // A legacy match keeps the address it was first reached at; an id match moves it —
+            // and a moved address is another machine as far as its key goes, so the pin goes too.
             if !saved.id.is_empty() {
+                if !same_address(&existing.address, &saved.address) {
+                    set_pin(existing, None);
+                }
                 existing.address = saved.address;
+            }
+            // Unticking "trust certificate" returns the host to the platform's roots.
+            if existing.trust_insecure && !saved.trust_insecure {
+                set_pin(existing, None);
+            }
+            if saved.tls_pin.is_some() {
+                set_pin(existing, saved.tls_pin);
             }
             existing.name = saved.name;
             existing.scheme = saved.scheme;
@@ -268,6 +294,23 @@ pub fn upsert_host(hosts: &mut Vec<SavedRemoteHost>, mut saved: SavedRemoteHost)
     }
 }
 
+/// Two saved addresses name the same `host:port` once the default port is applied.
+pub fn same_address(a: &str, b: &str) -> bool {
+    with_default_port(a) == with_default_port(b)
+}
+
+/// Change a saved host's key pin, bumping its revision so the host keeps this write over a stale
+/// window's (`HostSettings::keep_newer_pins`). An unchanged pin writes nothing. Answers whether
+/// it changed.
+pub fn set_pin(host: &mut SavedRemoteHost, pin: Option<String>) -> bool {
+    if host.tls_pin == pin {
+        return false;
+    }
+    host.tls_pin = pin;
+    host.tls_pin_rev += 1;
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,7 +329,53 @@ mod tests {
             },
             tunnels: Vec::new(),
             tunnel_rate_bps: None,
+            tls_pin: None,
+            tls_pin_rev: 0,
         }
+    }
+
+    #[test]
+    fn a_moved_address_drops_the_pin_and_a_new_pin_replaces_it() {
+        let mut hosts = Vec::new();
+        let mut host = unix("", "/tmp/a.sock");
+        host.tls_pin = Some("aa".into());
+        let id = upsert_host(&mut hosts, host);
+
+        // Same address, no pin on the update: the saved pin stays.
+        upsert_host(&mut hosts, unix(&id, "/tmp/a.sock"));
+        assert_eq!(hosts[0].tls_pin.as_deref(), Some("aa"));
+
+        // A pin on the update replaces it.
+        let mut host = unix(&id, "/tmp/a.sock");
+        host.tls_pin = Some("bb".into());
+        upsert_host(&mut hosts, host);
+        assert_eq!(hosts[0].tls_pin.as_deref(), Some("bb"));
+
+        // Every deliberate change bumped the revision.
+        assert_eq!(hosts[0].tls_pin_rev, 1);
+
+        // Another address: the pin is gone.
+        upsert_host(&mut hosts, unix(&id, "/tmp/b.sock"));
+        assert_eq!(hosts[0].tls_pin, None);
+        assert_eq!(hosts[0].tls_pin_rev, 2);
+    }
+
+    #[test]
+    fn unticking_trust_drops_the_pin() {
+        let mut hosts = Vec::new();
+        let mut host = unix("", "/tmp/a.sock");
+        host.trust_insecure = true;
+        host.tls_pin = Some("aa".into());
+        let id = upsert_host(&mut hosts, host);
+        upsert_host(&mut hosts, unix(&id, "/tmp/a.sock"));
+        assert_eq!(hosts[0].tls_pin, None);
+        assert!(!hosts[0].trust_insecure);
+    }
+
+    #[test]
+    fn the_default_port_does_not_make_another_address() {
+        assert!(same_address("box", "box:7420"));
+        assert!(!same_address("box:1", "box:2"));
     }
 
     #[test]

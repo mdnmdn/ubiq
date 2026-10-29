@@ -1443,6 +1443,8 @@ mod tests {
             carrier: ubiq_proto::settings::RemoteCarrier::Socket,
             tunnels: Vec::new(),
             tunnel_rate_bps: None,
+            tls_pin: None,
+            tls_pin_rev: 0,
         }
     }
 

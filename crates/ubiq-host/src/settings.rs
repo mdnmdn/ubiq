@@ -96,6 +96,9 @@ impl Settings {
                         settings.oauth_apps = held.oauth_apps;
                         settings.trusted_certs = held.trusted_certs;
                         settings.ai_providers = held.ai_providers;
+                        // `remote_hosts` rides the blob whole, but a key pin is a trust decision
+                        // a stale window must not erase or roll back (`D228`).
+                        settings.keep_newer_pins(&held.remote_hosts);
                         // The feedback URL override changes only through `SetFeedbackSettings`,
                         // beside its key in the keychain; a blob never moves it.
                         settings.feedback_url = held.feedback_url;

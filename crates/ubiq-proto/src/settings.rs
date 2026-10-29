@@ -393,11 +393,24 @@ pub struct SavedRemoteHost {
     /// written before the scheme was captured.
     #[serde(default)]
     pub scheme: RemoteScheme,
-    /// Only meaningful for `https`: skip chain validation. The panel shows it as
-    /// untrusted. Auto-reconnect does not apply this flag, so a later MITM is not
-    /// accepted without a click.
+    /// Only meaningful for `https`: skip chain validation. The first dial accepts any key and
+    /// records it as [`Self::tls_pin`]; from then on the host is pinned (`D228`). The panel shows
+    /// it as untrusted until it is.
     #[serde(default)]
     pub trust_insecure: bool,
+    /// The `https` key this host is pinned to: lowercase hex SHA-256 of the leaf certificate's
+    /// DER `SubjectPublicKeyInfo`. When set, only that key is accepted and the chain is ignored;
+    /// a different key is refused outright. Recorded on the first dial of a `trust_insecure`
+    /// host, cleared when the address changes or the trust flag is unticked. Public, not a secret — `None` for every record
+    /// written before pinning existed.
+    #[serde(default)]
+    pub tls_pin: Option<String>,
+    /// Bumped by every deliberate change to [`Self::tls_pin`] — learned, replaced, forgotten,
+    /// cleared by an address or trust change. The host keeps the on-disk pin over a blob carrying
+    /// an older or equal revision ([`HostSettings::keep_newer_pins`]), so a window writing a stale
+    /// copy of `remote_hosts` cannot erase or roll back a pin another window filed.
+    #[serde(default)]
+    pub tls_pin_rev: u64,
     /// What carries the frames to this host: a socket Ubiq dials, or an `ssh` it spawns.
     ///
     /// The discriminant rather than a second list, because everything around a saved host —
@@ -778,7 +791,12 @@ pub enum RemoteScheme {
 /// Twenty-four adds [`SavedRemoteHost::tunnels`] and [`SavedRemoteHost::tunnel_rate_bps`]. An
 /// older build drops both on its next write, and every forwarded port a user set up is gone — on
 /// seventeen's footing: lost configuration, re-typable, with nothing stranded in the keychain.
-pub const HOST_SETTINGS_SCHEMA: u32 = 24;
+///
+/// Twenty-five adds [`SavedRemoteHost::tls_pin`]. An older build drops it on its next write, and
+/// the host it pinned goes back to accepting any certificate on the next click — the direction
+/// that costs something, since the pin is the only thing standing between that host and a
+/// man in the middle.
+pub const HOST_SETTINGS_SCHEMA: u32 = 25;
 
 fn isolate_agents_default() -> bool {
     true
@@ -824,6 +842,28 @@ fn search_fallbacks_default() -> Vec<String> {
 
 fn mission_term_default() -> String {
     "Mission".to_string()
+}
+
+impl HostSettings {
+    /// Merge the key pins of an incoming blob against what is on disk (`held`), per saved host:
+    /// for the same id at the same address, the on-disk pin stands unless the incoming one
+    /// carries a strictly newer [`SavedRemoteHost::tls_pin_rev`]. A moved address takes the
+    /// incoming record's (a pin belongs to an address). `remote_hosts` is otherwise the
+    /// interface's to write whole; this is the one field a stale window must not roll back.
+    pub fn keep_newer_pins(&mut self, held: &[SavedRemoteHost]) {
+        for host in &mut self.remote_hosts {
+            let Some(disk) = held
+                .iter()
+                .find(|disk| !disk.id.is_empty() && disk.id == host.id)
+            else {
+                continue;
+            };
+            if disk.address == host.address && host.tls_pin_rev <= disk.tls_pin_rev {
+                host.tls_pin = disk.tls_pin.clone();
+                host.tls_pin_rev = disk.tls_pin_rev;
+            }
+        }
+    }
 }
 
 impl Default for HostSettings {

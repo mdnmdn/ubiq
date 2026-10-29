@@ -25,7 +25,7 @@
 
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, TcpStream, ToSocketAddrs};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -99,6 +99,10 @@ pub enum ConnectFailure {
     /// `ssh` refused the far host's key: it differs from the one in `~/.ssh/known_hosts`. The
     /// string is `ssh`'s own sentence. No retry fixes it, so the reconnect loop stops on it.
     HostKeyChanged(String),
+    /// A pinned `https` host presented another key than its pin (`D228`). Refused before the
+    /// token was sent; no retry fixes it, so the reconnect loop stops on it and the modal offers
+    /// to trust the new key. Both are `ubiq_tunnel::pin::fingerprint`s.
+    PinMismatch { pinned: String, presented: String },
     /// The address or the token carried a control character, so no request was sent.
     Untypable(&'static str),
 }
@@ -134,6 +138,12 @@ impl std::fmt::Display for ConnectFailure {
                 "the host key does not match ~/.ssh/known_hosts — refused, possibly a \
                  man-in-the-middle. If the host was reinstalled, remove its line with \
                  `ssh-keygen -R <host>` and connect again. ssh said: {said}"
+            ),
+            ConnectFailure::PinMismatch { pinned, presented } => write!(
+                f,
+                "the host's TLS key changed — refused, possibly a man-in-the-middle. Pinned \
+                 key SHA-256 {pinned}, presented {presented}. If the host's key was replaced on \
+                 purpose, trust the new key."
             ),
             ConnectFailure::Untypable(part) => {
                 write!(
@@ -245,6 +255,8 @@ pub struct DialParams {
     pub token: String,
     pub scheme: RemoteScheme,
     pub trust_insecure: bool,
+    /// The saved key pin, for `https`: when set, only that key is accepted (`D228`).
+    pub tls_pin: Option<String>,
 }
 
 /// Dial one remote host over plaintext and, on success, hand back the `Client` a `Bus`
@@ -257,10 +269,14 @@ fn dial(address: &str, token: &str) -> Result<Client, ConnectFailure> {
         token: token.to_string(),
         scheme: RemoteScheme::Http,
         trust_insecure: false,
+        tls_pin: None,
     })
+    .map(|(client, _)| client)
 }
 
-fn dial_with(params: &DialParams) -> Result<Client, ConnectFailure> {
+/// [`dial_raw`], then the pumps behind a `Client`. With it, the key pin this dial learned — only
+/// ever on a `trust_insecure` host's first use; the caller files it on the saved entry.
+fn dial_with(params: &DialParams) -> Result<(Client, Option<String>), ConnectFailure> {
     let session = dial_raw(params)?;
     let (client, detached) = bus::detached();
     let closer = session.closer;
@@ -272,7 +288,7 @@ fn dial_with(params: &DialParams) -> Result<Client, ConnectFailure> {
         }),
         detached,
     );
-    Ok(client)
+    Ok((client, session.learned_pin))
 }
 
 /// One side of [`dial_raw`]'s answer: the two stream halves plus a TCP clone used only to
@@ -281,6 +297,8 @@ struct RawSession {
     reader: Box<dyn Socket>,
     writer: Box<dyn Socket>,
     closer: TcpStream,
+    /// The key accepted on first use, when this dial was one (`ubiq_tunnel::pin::Trust::FirstUse`).
+    learned_pin: Option<String>,
 }
 
 /// Dial and run the HTTP upgrade, handing back the two stream halves with no pumps behind them.
@@ -348,10 +366,13 @@ fn dial_raw(params: &DialParams) -> Result<RawSession, ConnectFailure> {
                 reader: Box::new(reader) as Box<dyn Socket>,
                 writer: stream as Box<dyn Socket>,
                 closer,
+                learned_pin: None,
             })
         }
         RemoteScheme::Https => {
-            let mut pair = tls_handshake(stream, &params.address, params.trust_insecure)?;
+            let trust =
+                ubiq_tunnel::pin::Trust::for_host(params.tls_pin.as_deref(), params.trust_insecure);
+            let (mut pair, learned_pin) = tls_handshake(stream, &params.address, trust)?;
             rustls::Stream::new(&mut pair.conn, &mut pair.sock)
                 .write_all(attach_request(&params.address, &params.token).as_bytes())
                 .map_err(|error| ConnectFailure::Io(error.to_string()))?;
@@ -374,6 +395,7 @@ fn dial_raw(params: &DialParams) -> Result<RawSession, ConnectFailure> {
                 reader: Box::new(shared.clone()),
                 writer: Box::new(shared),
                 closer,
+                learned_pin,
             })
         }
     }
@@ -430,11 +452,15 @@ impl Write for SharedTls {
 ///
 /// Blocking, like everything else in this file — the caller is already off the GPUI thread.
 /// `address` is `host:port`; the port is stripped before the server name is derived from it.
+///
+/// How the server is believed is `ubiq_tunnel::pin`'s whole business (`D228`): the platform's
+/// roots, a key accepted on first use — answered back here as the pin to file — or exactly the
+/// pinned key. The handshake signature is checked in every case.
 fn tls_handshake(
     sock: TcpStream,
     address: &str,
-    trust_insecure: bool,
-) -> Result<TlsPair, ConnectFailure> {
+    trust: ubiq_tunnel::pin::Trust,
+) -> Result<(TlsPair, Option<String>), ConnectFailure> {
     use rustls::pki_types::ServerName;
 
     let host = address
@@ -453,130 +479,29 @@ fn tls_handshake(
             .map_err(|_| ConnectFailure::Unreachable(format!("{host} is not a valid host name")))?
     };
 
-    let config = tls_config(trust_insecure);
+    let pinned = match &trust {
+        ubiq_tunnel::pin::Trust::Pinned(pin) => Some(pin.clone()),
+        _ => None,
+    };
+    let first_use = trust == ubiq_tunnel::pin::Trust::FirstUse;
+    let (config, seen) = ubiq_tunnel::pin::client_config(trust);
+    let presented = || seen.lock().unwrap_or_else(|p| p.into_inner()).clone();
     let mut conn = rustls::ClientConnection::new(config, server_name)
         .map_err(|error| ConnectFailure::Tls(error.to_string()))?;
     let mut sock = sock;
     while conn.is_handshaking() {
-        conn.complete_io(&mut sock)
-            .map_err(|error| ConnectFailure::Tls(error.to_string()))?;
-    }
-    Ok(TlsPair { conn, sock })
-}
-
-/// The crypto provider, named rather than inherited — the host's `connectors::tls` names `ring`
-/// for the same reason, and two halves of one handshake must not disagree about it.
-fn tls_provider() -> Arc<rustls::crypto::CryptoProvider> {
-    static PROVIDER: OnceLock<Arc<rustls::crypto::CryptoProvider>> = OnceLock::new();
-    PROVIDER
-        .get_or_init(|| Arc::new(rustls::crypto::ring::default_provider()))
-        .clone()
-}
-
-/// The trust anchors: the platform's store first, the compiled-in public roots as the floor.
-/// Same order as the host's own verifier — an internal CA works, and a machine whose store
-/// cannot be read still reaches a public host.
-fn tls_roots() -> Arc<rustls::RootCertStore> {
-    static ROOTS: OnceLock<Arc<rustls::RootCertStore>> = OnceLock::new();
-    ROOTS
-        .get_or_init(|| {
-            let mut store = rustls::RootCertStore::empty();
-            let native = rustls_native_certs::load_native_certs();
-            for error in &native.errors {
-                tracing::debug!("a platform trust root was not read: {error}");
+        if let Err(error) = conn.complete_io(&mut sock) {
+            // A refusal under a pin is the key changing, not a broken handshake: say which keys.
+            if let (Some(pinned), Some(presented)) = (pinned.clone(), presented())
+                && !pinned.eq_ignore_ascii_case(&presented)
+            {
+                return Err(ConnectFailure::PinMismatch { pinned, presented });
             }
-            store.add_parsable_certificates(native.certs);
-            store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-            Arc::new(store)
-        })
-        .clone()
-}
-
-fn tls_config(trust_insecure: bool) -> Arc<rustls::ClientConfig> {
-    static CHAINED: OnceLock<Arc<rustls::ClientConfig>> = OnceLock::new();
-    static INSECURE: OnceLock<Arc<rustls::ClientConfig>> = OnceLock::new();
-    let slot = if trust_insecure { &INSECURE } else { &CHAINED };
-    slot.get_or_init(|| {
-        // Infallible with `ring` compiled in: the only failure is no usable cipher suite, and
-        // the provider names its own.
-        let builder = rustls::ClientConfig::builder_with_provider(tls_provider())
-            .with_safe_default_protocol_versions()
-            .expect("the TLS protocol versions");
-        if trust_insecure {
-            Arc::new(
-                builder
-                    .dangerous()
-                    .with_custom_certificate_verifier(TrustAny::new())
-                    .with_no_client_auth(),
-            )
-        } else {
-            Arc::new(
-                builder
-                    .with_root_certificates(tls_roots())
-                    .with_no_client_auth(),
-            )
+            return Err(ConnectFailure::Tls(error.to_string()));
         }
-    })
-    .clone()
-}
-
-/// The verifier behind the trust checkbox: the chain is accepted without asking the
-/// platform, but handshake signatures still go through the real verifier.
-///
-/// There is deliberately no pinning here — a fingerprint the user vouched for once would have
-/// to live beside the saved entry, and silently re-accepting it afterwards is a second trust
-/// decision this round does not take. The manager panel shows the flag so the choice stays
-/// visible, and unchecking it returns to the platform's rules.
-#[derive(Debug)]
-struct TrustAny {
-    inner: Arc<rustls::client::WebPkiServerVerifier>,
-}
-
-impl TrustAny {
-    fn new() -> Arc<Self> {
-        let inner = rustls::client::WebPkiServerVerifier::builder_with_provider(
-            tls_roots(),
-            tls_provider(),
-        )
-        .build()
-        .expect("the web pki verifier");
-        Arc::new(Self { inner })
     }
-}
-
-impl rustls::client::danger::ServerCertVerifier for TrustAny {
-    fn verify_server_cert(
-        &self,
-        _end_entity: &rustls::pki_types::CertificateDer<'_>,
-        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
-        _server_name: &rustls::pki_types::ServerName<'_>,
-        _ocsp_response: &[u8],
-        _now: rustls::pki_types::UnixTime,
-    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::danger::ServerCertVerified::assertion())
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        message: &[u8],
-        cert: &rustls::pki_types::CertificateDer<'_>,
-        dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        self.inner.verify_tls12_signature(message, cert, dss)
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        message: &[u8],
-        cert: &rustls::pki_types::CertificateDer<'_>,
-        dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        self.inner.verify_tls13_signature(message, cert, dss)
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        self.inner.supported_verify_schemes()
-    }
+    let learned = if first_use { presented() } else { None };
+    Ok((TlsPair { conn, sock }, learned))
 }
 
 /// Start the session a finished drone handshake earned: a detached [`Client`] and the pump behind
@@ -795,6 +720,7 @@ impl AppState {
             profile,
             preset,
             unix_path,
+            pin_offer: None,
         });
         cx.notify();
     }
@@ -944,6 +870,14 @@ impl AppState {
             token,
             scheme: modal.scheme,
             trust_insecure: modal.trust_insecure,
+            // Read now, not when the modal opened: a "Trust new key" just filed one.
+            tls_pin: self
+                .saved_remote_index(&modal.save_id, &address)
+                .and_then(|index| {
+                    self.workbench.settings.host.remote_hosts[index]
+                        .tls_pin
+                        .clone()
+                }),
         };
         let save_id = modal.save_id.clone();
         let saved_name = modal.saved_name.clone();
@@ -954,6 +888,7 @@ impl AppState {
                 attempt,
                 deploy: None,
             };
+            state.pin_offer = None;
         }
         cx.notify();
 
@@ -976,7 +911,7 @@ impl AppState {
     fn land_remote_connect(
         &mut self,
         attempt: AttemptId,
-        outcome: Result<Client, ConnectFailure>,
+        outcome: Result<(Client, Option<String>), ConnectFailure>,
         save_id: String,
         saved_name: Option<String>,
         cx: &mut Context<Self>,
@@ -1007,7 +942,7 @@ impl AppState {
         let modal = self.workbench.remote_connect.clone().unwrap_or_default();
 
         match outcome {
-            Ok(client) => {
+            Ok((client, learned_pin)) => {
                 // A reconnect keeps the name the host was saved under; a fresh dial has none yet,
                 // so the address it just proved reachable at becomes its name — the same thing
                 // `RemoteConn::label` already showed for it before there was a saved-hosts list.
@@ -1024,6 +959,8 @@ impl AppState {
                     RemoteCarrier::Socket,
                     cx,
                 );
+                // Trust on first use: the key this dial accepted is the one it is pinned to now.
+                self.learn_tls_pin(&saved, &address, learned_pin);
                 let token = self.remote_token_input.read(cx).value().trim().to_string();
                 if !token.is_empty() {
                     host_secrets::save_token(&host_secrets::key_for(&saved, &address), &token);
@@ -1039,6 +976,7 @@ impl AppState {
                 self.workbench.settings.failed_hosts.remove(&address);
                 if let Some(state) = &mut self.workbench.remote_connect {
                     state.step = RemoteConnectStep::Connected { label };
+                    state.pin_offer = None;
                 }
             }
             Err(failure) => {
@@ -1047,6 +985,15 @@ impl AppState {
                 // address is not there until a dial to it succeeds.
                 self.workbench.settings.failed_hosts.insert(address);
                 if let Some(state) = &mut self.workbench.remote_connect {
+                    state.pin_offer = match &failure {
+                        ConnectFailure::PinMismatch { pinned, presented } => {
+                            Some(crate::state::remote::PinOffer {
+                                pinned: pinned.clone(),
+                                presented: presented.clone(),
+                            })
+                        }
+                        _ => None,
+                    };
                     state.step = RemoteConnectStep::Failed {
                         reason: failure.to_string(),
                     };
@@ -1054,6 +1001,98 @@ impl AppState {
             }
         }
         cx.notify();
+    }
+
+    /// The saved entry a socket dial at `address` belongs to — by id when the modal carries one,
+    /// by address otherwise, the rule `upsert_host` files it by — and only while it still names
+    /// that address: an edited address is another machine, and the old pin is not its key.
+    fn saved_remote_index(&self, save_id: &str, address: &str) -> Option<usize> {
+        use crate::state::remote::same_address;
+        let hosts = &self.workbench.settings.host.remote_hosts;
+        let index = if save_id.is_empty() {
+            hosts
+                .iter()
+                .position(|host| same_address(&host.address, address))
+        } else {
+            hosts.iter().position(|host| host.id == save_id)
+        }?;
+        same_address(&hosts[index].address, address).then_some(index)
+    }
+
+    /// File `pin` as the saved entry `save_id`'s key pin — `None` forgets it. Only this field:
+    /// a reconnect running against a stale clone must not restate the rest. Bumps the pin's
+    /// revision, so the host keeps it over a stale window's write.
+    pub fn remember_tls_pin(&mut self, save_id: &str, pin: Option<String>) {
+        let Some(saved) = self
+            .workbench
+            .settings
+            .host
+            .remote_hosts
+            .iter_mut()
+            .find(|saved| saved.id == save_id)
+        else {
+            return;
+        };
+        if crate::state::remote::set_pin(saved, pin) {
+            self.remember_host_settings();
+        }
+    }
+
+    /// File a key accepted on first use — compare-and-set: only while the entry still has no
+    /// pin and still names the address that was dialled. A pin filed meanwhile (another window,
+    /// a "Trust new key") or an edited address wins over what this dial learned.
+    fn learn_tls_pin(&mut self, save_id: &str, address: &str, pin: Option<String>) {
+        let Some(pin) = pin else {
+            return;
+        };
+        let still_unpinned = self
+            .workbench
+            .settings
+            .host
+            .remote_hosts
+            .iter()
+            .find(|saved| saved.id == save_id)
+            .is_some_and(|saved| {
+                saved.tls_pin.is_none()
+                    && crate::state::remote::same_address(&saved.address, address)
+            });
+        if still_unpinned {
+            self.remember_tls_pin(save_id, Some(pin));
+        }
+    }
+
+    /// The manager panel's "Forget key": the next dial takes the host's key afresh — on first use
+    /// when it trusts any certificate, from the platform's roots otherwise.
+    pub fn forget_tls_pin(&mut self, save_id: String, cx: &mut Context<Self>) {
+        self.remember_tls_pin(&save_id, None);
+        cx.notify();
+    }
+
+    /// The `Failed` step's "Trust new key": pin the key the host just presented, then dial again.
+    /// The user's own click on a refusal that showed both keys — nothing reaches this on its own.
+    pub fn trust_new_remote_key(&mut self, cx: &mut Context<Self>) {
+        let Some(modal) = self.workbench.remote_connect.clone() else {
+            return;
+        };
+        let Some(offer) = modal.pin_offer else {
+            return;
+        };
+        let address = self
+            .remote_address_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_string();
+        // Replace only the pin the refusal was against: if it moved meanwhile (another window,
+        // a Forget), the offer is stale and the dial below says what the host presents now.
+        if let Some(index) = self.saved_remote_index(&modal.save_id, &address) {
+            let saved = &self.workbench.settings.host.remote_hosts[index];
+            if saved.tls_pin.as_deref() == Some(offer.pinned.as_str()) {
+                let save_id = saved.id.clone();
+                self.remember_tls_pin(&save_id, Some(offer.presented));
+            }
+        }
+        self.try_connect_remote(cx);
     }
 
     // ── Drones over ssh ─────────────────────────────────────────────────────
@@ -1686,7 +1725,7 @@ impl AppState {
                     save_id,
                     address,
                     RemoteScheme::Http,
-                    outcome.map(|dial| dial.client),
+                    outcome.map(|dial| (dial.client, None)),
                     cx,
                 )
             });
@@ -1802,22 +1841,28 @@ impl AppState {
             self.forget_ssh_tunnels(&save_id);
             return;
         }
-        // TrustAny accepts any certificate. Auto-reconnect would re-apply that without a
-        // prompt, so a later MITM on this address would succeed. A click on Connect still
-        // can, because that is the user saying so again.
+        // A host that trusts any certificate and has no key pinned yet would accept whatever
+        // answers on first use. Auto-reconnect would do that without a prompt, so a MITM on this
+        // address would succeed and be pinned. A pinned host reconnects: only its own key passes
+        // (`D228`). A click on Connect still can, because that is the user saying so again.
         if self
             .saved_entry(&key)
-            .is_some_and(|host| host.trust_insecure)
+            .is_some_and(|host| host.trust_insecure && host.tls_pin.is_none())
         {
             return;
         }
-        self.start_reconnect(&key, cx);
+        self.begin_reconnect(&key, false, cx);
     }
 
     /// Begin (or re-begin) the reconnect loop for a saved entry: bump the generation so a timer
     /// scheduled earlier aborts, reset the attempt count for a manual start, and dial at once
-    /// rather than waiting out a backoff the user just asked to skip.
+    /// rather than waiting out a backoff the user just asked to skip. A person's click: its first
+    /// attempt may take a trust-any host's key on first use, which no timer-driven one does.
     pub fn start_reconnect(&mut self, key: &str, cx: &mut Context<Self>) {
+        self.begin_reconnect(key, true, cx);
+    }
+
+    fn begin_reconnect(&mut self, key: &str, manual: bool, cx: &mut Context<Self>) {
         let generation = self
             .workbench
             .settings
@@ -1831,9 +1876,10 @@ impl AppState {
                 attempt: 0,
                 error: String::new(),
                 generation,
+                pin: self.saved_entry(key).and_then(|saved| saved.tls_pin),
             },
         );
-        self.retry_reconnect(key.to_string(), generation, cx);
+        self.retry_reconnect(key.to_string(), generation, manual, cx);
     }
 
     /// Stop the loop for a saved entry. Every scheduled wake checks the generation it was
@@ -1846,7 +1892,13 @@ impl AppState {
     /// One attempt, now. Reads the saved entry fresh every time, so an edit between tries is
     /// honoured without stopping the loop, and dispatches on its carrier: a socket host dials with
     /// its keychain token, a drone re-launches the same `ssh` line the connect modal would.
-    fn retry_reconnect(&mut self, key: String, generation: u64, cx: &mut Context<Self>) {
+    fn retry_reconnect(
+        &mut self,
+        key: String,
+        generation: u64,
+        manual: bool,
+        cx: &mut Context<Self>,
+    ) {
         let current = self.workbench.settings.reconnects.get(&key).cloned();
         let Some(state) = current else {
             return;
@@ -1860,7 +1912,9 @@ impl AppState {
             return;
         };
         match saved.carrier.clone() {
-            RemoteCarrier::Socket => self.retry_reconnect_socket(key, generation, saved, cx),
+            RemoteCarrier::Socket => {
+                self.retry_reconnect_socket(key, generation, saved, state, manual, cx)
+            }
             RemoteCarrier::Ssh {
                 profile,
                 root,
@@ -1873,14 +1927,39 @@ impl AppState {
         }
     }
 
-    /// The socket half of [`Self::retry_reconnect`]: unchanged from before phase 7.
+    /// The socket half of [`Self::retry_reconnect`].
+    ///
+    /// For `https`, the key a timer-driven attempt accepts is fixed when the loop begins
+    /// (`ReconnectState::pin`, `D228`): a trust-any host whose pin is gone — forgotten, or erased
+    /// by another window — would otherwise take whatever answers on first use and send it the
+    /// token, and a pin that changed mid-loop is a trust decision the loop did not see made. Both
+    /// stop the loop with the reason on the row; "Reconnect now" is the person deciding again.
+    #[allow(clippy::too_many_arguments)]
     fn retry_reconnect_socket(
         &mut self,
         key: String,
         generation: u64,
         saved: SavedRemoteHost,
+        state: crate::state::settings::ReconnectState,
+        manual: bool,
         cx: &mut Context<Self>,
     ) {
+        if saved.scheme == RemoteScheme::Https && !manual {
+            let refusal = if saved.tls_pin != state.pin {
+                Some("the host's key pin changed since this reconnect began — reconnect to use it")
+            } else if saved.trust_insecure && saved.tls_pin.is_none() {
+                Some("no key is pinned for this host — connect from the panel to pin one")
+            } else {
+                None
+            };
+            if let Some(refusal) = refusal {
+                if let Some(state) = self.workbench.settings.reconnects.get_mut(&key) {
+                    state.error = refusal.to_string();
+                }
+                cx.notify();
+                return;
+            }
+        }
         let address = saved.address.clone();
         let Some(token) = host_secrets::load_token(&key) else {
             // No secret, no loop: retrying without one is a dial that cannot succeed. The entry
@@ -1891,11 +1970,13 @@ impl AppState {
             cx.notify();
             return;
         };
+        // `saved` is read fresh for every attempt; past the check above, its pin is the loop's.
         let params = DialParams {
             address: with_default_port(&address),
             token,
             scheme: saved.scheme,
             trust_insecure: saved.trust_insecure,
+            tls_pin: saved.tls_pin.clone(),
         };
         let label = saved.name.clone();
         let save_id = saved.id.clone();
@@ -2023,7 +2104,9 @@ impl AppState {
                 let delay = Self::backoff_for(attempt);
                 cx.spawn(async move |this: WeakEntity<Self>, cx| {
                     cx.background_executor().timer(delay).await;
-                    let _ = this.update(cx, |this, cx| this.retry_reconnect(key, generation, cx));
+                    let _ = this.update(cx, |this, cx| {
+                        this.retry_reconnect(key, generation, false, cx)
+                    });
                 })
                 .detach();
                 return;
@@ -2042,7 +2125,7 @@ impl AppState {
         save_id: String,
         address: String,
         scheme: RemoteScheme,
-        outcome: Result<Client, ConnectFailure>,
+        outcome: Result<(Client, Option<String>), ConnectFailure>,
         cx: &mut Context<Self>,
     ) {
         let current = self.workbench.settings.reconnects.get(&key).cloned();
@@ -2053,9 +2136,12 @@ impl AppState {
             return;
         }
         match outcome {
-            Ok(client) => {
+            Ok((client, learned_pin)) => {
                 self.workbench.settings.reconnects.remove(&key);
                 self.workbench.settings.failed_hosts.remove(&address);
+                // Only a "Reconnect now" on an unpinned trust-any host learns one: the loop never
+                // starts on its own for such a host.
+                self.learn_tls_pin(&save_id, &address, learned_pin);
                 self.attach_remote(client, label, save_id, address, scheme, cx);
             }
             Err(failure) => {
@@ -2064,11 +2150,18 @@ impl AppState {
                     state.attempt = attempt;
                     state.error = failure.to_string();
                 }
-                let delay = Self::backoff_for(attempt);
                 cx.notify();
+                // A changed key is not transient: the entry keeps the reason — both keys — and
+                // no further attempt is scheduled. Connect from the panel offers to trust it.
+                if matches!(failure, ConnectFailure::PinMismatch { .. }) {
+                    return;
+                }
+                let delay = Self::backoff_for(attempt);
                 cx.spawn(async move |this: WeakEntity<Self>, cx| {
                     cx.background_executor().timer(delay).await;
-                    let _ = this.update(cx, |this, cx| this.retry_reconnect(key, generation, cx));
+                    let _ = this.update(cx, |this, cx| {
+                        this.retry_reconnect(key, generation, false, cx)
+                    });
                 })
                 .detach();
                 return;
@@ -2122,7 +2215,9 @@ impl AppState {
             address: with_default_port(&address),
             token,
             scheme: saved.scheme,
+            // A test files nothing: a key it accepts on first use is not pinned by it.
             trust_insecure: saved.trust_insecure,
+            tls_pin: saved.tls_pin.clone(),
         };
         let outcome = cx.background_spawn(async move {
             match dial_raw(&params) {

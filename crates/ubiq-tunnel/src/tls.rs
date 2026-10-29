@@ -27,7 +27,7 @@ use crate::http::{RequestRewriter, ResponseRewriter};
 use crate::mux::{Mux, Recv, TunnelStream};
 use crate::pipe::Counters;
 
-fn provider() -> Arc<rustls::crypto::CryptoProvider> {
+pub(crate) fn provider() -> Arc<rustls::crypto::CryptoProvider> {
     static PROVIDER: OnceLock<Arc<rustls::crypto::CryptoProvider>> = OnceLock::new();
     PROVIDER
         .get_or_init(|| Arc::new(rustls::crypto::ring::default_provider()))
@@ -35,7 +35,7 @@ fn provider() -> Arc<rustls::crypto::CryptoProvider> {
 }
 
 /// The platform's store first, the bundled public roots as the floor — the dialer's order.
-fn roots() -> Arc<rustls::RootCertStore> {
+pub(crate) fn roots() -> Arc<rustls::RootCertStore> {
     static ROOTS: OnceLock<Arc<rustls::RootCertStore>> = OnceLock::new();
     ROOTS
         .get_or_init(|| {

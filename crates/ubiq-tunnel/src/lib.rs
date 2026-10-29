@@ -22,6 +22,7 @@
 mod http;
 mod local;
 mod mux;
+pub mod pin;
 mod pipe;
 mod rate;
 mod registry;

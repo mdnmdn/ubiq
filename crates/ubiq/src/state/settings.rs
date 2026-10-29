@@ -1042,6 +1042,9 @@ pub struct ReconnectState {
     /// Bumped by every manual retry and every stop, so a timer scheduled earlier aborts instead
     /// of dialling twice.
     pub generation: u64,
+    /// The saved host's key pin when the loop began. A timer-driven attempt that finds another
+    /// one on the entry stops instead of dialling (`D228`).
+    pub pin: Option<String>,
 }
 
 /// What one project says about inheriting the global agent definitions, off its record.

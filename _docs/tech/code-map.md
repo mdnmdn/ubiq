@@ -882,7 +882,9 @@ the documents in its row.
 | `crates/ubiq-proto/src/work.rs` | [`transport-contract.md`](./transport-contract.md), [`wip/agent-setup.md`](../wip/agent-setup.md) |
 | `crates/ubiq-tunnel/Cargo.toml` | [`project-structure.md`](./project-structure.md) |
 | `crates/ubiq-tunnel/src/mux.rs` | [`transport-contract.md`](./transport-contract.md) |
+| `crates/ubiq-tunnel/src/pin.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-tunnel/src/registry.rs` | [`transport-contract.md`](./transport-contract.md) |
+| `crates/ubiq-tunnel/src/tls.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq/Cargo.toml` | [`project-structure.md`](./project-structure.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
 | `crates/ubiq/assets/web/bridge.js` | [`wip/eb-panel-phase6.md`](../wip/eb-panel-phase6.md), [`wip/web-panel-phase2.md`](../wip/web-panel-phase2.md) |
 | `crates/ubiq/assets/web/drawio/app.js` | [`wip/web-panel-phase45.md`](../wip/web-panel-phase45.md) |

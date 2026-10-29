@@ -186,12 +186,9 @@ parking_lot = "0.12"
 anyhow = "1"
 # Remote-host dialer: TLS for `https://` saved hosts. Same rustls the host already
 # uses, so there is one TLS stack in the workspace. `ring` pinned as the provider
-# for the same reason it is on the host's side.
+# for the same reason it is on the host's side. The trust roots and the key-pin verifier are
+# `ubiq-tunnel`'s (`ubiq_tunnel::pin`).
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
-# Trust roots for https dials: the platform's store first, the bundled Mozilla set
-# when it cannot be read. Neither draws.
-rustls-native-certs = "0.8"
-webpki-roots = "1"
 # Remote-host bearer tokens, one entry per saved host. The settings file carries the
 # address and never the secret; this is where the secret lives. keyring 4's default `v1` feature
 # is the platform-native store on each OS (Keychain, Credential Manager, Secret Service) — the

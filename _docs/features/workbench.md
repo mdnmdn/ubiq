@@ -856,7 +856,16 @@ dial that succeeds is saved automatically, its carrier included, so it can be of
 restart — the Hosts section, below, is where that record is managed. A dial that fails, ssh included,
 lands on the same `Failed` step and shows the reason verbatim — an unreachable host, a refused
 handshake, or a drone that exited on the far machine all read here rather than the modal being stuck
-on "Connecting" forever. **A first connect to a machine with no drone deploys one and says so as it
+on "Connecting" forever. **An `https` host with "Trust certificate" ticked is pinned to its key on
+the first connect** (`D228`): any key is accepted once and recorded, and from then on only that key
+passes. A different one is refused before the token is sent; the `Failed` step shows both SHA-256
+fingerprints and a **Trust new key** action that pins the new key — only if the pin is still the
+one refused — and dials again. A pinned host auto-reconnects (an unpinned trust-any host does not);
+the loop dials with the pin it began with, and stops with the reason on the row when the key
+changes, when the pin changes under it, or when the pin is gone — only **Reconnect now** may take a
+key on first use. The Remote hosts manager notes the pin's head on the row and offers **Forget
+key**; a saved host whose address is edited, or whose "Trust certificate" is unticked, loses its
+pin. **A first connect to a machine with no drone deploys one and says so as it
 goes**: the far `PATH` is tried first, and only a shell answering "not found" sends Ubiq round the
 four steps the `Connecting` line names in turn — checking what was uploaded before, asking what
 machine it is, verifying the drone built for it, uploading it. A machine this build has no
