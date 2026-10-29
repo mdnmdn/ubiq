@@ -18,7 +18,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
-use ubiq_proto::browser::{BROWSER_TIMEOUT_SECS, BrowserCmd, BrowserContentFormat};
+use ubiq_proto::browser::{
+    BROWSER_TIMEOUT_SECS, BrowserCmd, BrowserContentFormat, SCREENSHOT_MAX_DIMENSION,
+    VIEWPORT_MAX, VIEWPORT_MIN,
+};
 use ubiq_proto::bus::Voice;
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::messages::Message;
@@ -110,6 +113,34 @@ pub fn call(
             script: required(arguments, "script")?,
         },
         "browser_info" => BrowserCmd::Info { tab: tab() },
+        "browser_screenshot" => BrowserCmd::Screenshot {
+            tab: tab(),
+            max_dimension: match arguments.get("max_dimension") {
+                None | Some(Value::Null) => SCREENSHOT_MAX_DIMENSION,
+                Some(value) => value
+                    .as_u64()
+                    .filter(|px| (16..=16_384).contains(px))
+                    .ok_or("max_dimension must be a whole number of pixels from 16 to 16384")?
+                    as u32,
+            },
+        },
+        "browser_set_viewport" => BrowserCmd::SetViewport {
+            tab: tab(),
+            width: match arguments.get("width") {
+                None | Some(Value::Null) => None,
+                Some(value) => Some(
+                    value
+                        .as_u64()
+                        .filter(|px| {
+                            (u64::from(VIEWPORT_MIN)..=u64::from(VIEWPORT_MAX)).contains(px)
+                        })
+                        .ok_or(format!(
+                            "width must be a whole number of pixels from {VIEWPORT_MIN} to \
+                             {VIEWPORT_MAX}, or null to fill the tab"
+                        ))? as u32,
+                ),
+            },
+        },
         "browser_wait_load" => return wait_load(arguments, facts, project_id, voice, reach),
         _ => return Err(format!("unknown tool: ubiq-browser/{tool}")),
     };

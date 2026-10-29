@@ -84,7 +84,26 @@ pub enum BrowserCmd {
     Info {
         tab: Option<String>,
     },
+    /// The visible page as a PNG no side of which exceeds `max_dimension` pixels. The reply's JSON
+    /// carries it base64-encoded under `png_base64`, beside its `width` and `height`.
+    Screenshot {
+        tab: Option<String>,
+        max_dimension: u32,
+    },
+    /// Lay the page out `width` CSS pixels wide, centred in the tab; `None` fills the tab.
+    SetViewport {
+        tab: Option<String>,
+        width: Option<u32>,
+    },
 }
+
+/// `browser_screenshot`'s default bound on the image's longer side: what a vision model takes
+/// without scaling it down itself.
+pub const SCREENSHOT_MAX_DIMENSION: u32 = 1568;
+
+/// The narrowest and widest page [`BrowserCmd::SetViewport`] lays out, in CSS pixels.
+pub const VIEWPORT_MIN: u32 = 200;
+pub const VIEWPORT_MAX: u32 = 4096;
 
 impl BrowserCmd {
     /// The command's name, for a log line.
@@ -101,6 +120,8 @@ impl BrowserCmd {
             BrowserCmd::GetContent { .. } => "get_content",
             BrowserCmd::Eval { .. } => "eval",
             BrowserCmd::Info { .. } => "info",
+            BrowserCmd::Screenshot { .. } => "screenshot",
+            BrowserCmd::SetViewport { .. } => "set_viewport",
         }
     }
 }

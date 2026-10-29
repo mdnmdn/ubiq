@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and the ten modes it selects between, the dock of movable panels the user arranges around the centre, the titlebar and its navigator, the projects a window holds and the empty state one with none shows, the picker that adds, clones and opens them, project and application settings, the Tools dialog, the file picker any screen raises, and the status bar that reports on all of it. Each mode's own screen has a document of its own.
 read_when: you are changing the window layout, the rail, the dock, where a panel may sit or when it is drawn, the titlebar, the navigator, the project picker, cloning a project, project or application settings, the Tools dialog, remote hosts, the file picker, vim mode, or the status bar
-updated: 2026-10-28
-verified: 2026-10-28
+updated: 2026-10-29
+verified: 2026-10-29
 code_anchors: [crates/ubiq/src/app/browser.rs, crates/ubiq/src/state/browser.rs, crates/ubiq/src/ui/browser.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/onboarding.rs, crates/ubiq/src/state/onboarding.rs, crates/ubiq/src/ui/search.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/tests/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/menus.rs, crates/ubiq/src/ext/menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/src/ui/run_tool_menu.rs, crates/ubiq/src/ui/hidden_agents_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ext/rail.rs, crates/ubiq/tests/rail_container.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/updates.rs, crates/ubiq/src/app/updates.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ext/settings.rs, crates/ubiq/src/ui/sink/ext_demo.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/tests/settings_container.rs, crates/ubiq/src/state/catalog.rs, crates/ubiq/src/app/catalog.rs, crates/ubiq/src/ui/catalog.rs, crates/ubiq/tests/catalog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq-host/src/shell_integration.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/app/unix_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/state/run_picker.rs, crates/ubiq/src/state/about.rs, crates/ubiq/src/app/about.rs, crates/ubiq/src/ui/about.rs, crates/ubiq/src/state/devtools.rs, crates/ubiq/src/app/devtools.rs, crates/ubiq/src/ui/devtools.rs, crates/ubiq/src/devtools/mod.rs, crates/ubiq/src/devtools/codec.rs, crates/ubiq/src/devtools/detect.rs, crates/ubiq/src/devtools/diff.rs, crates/ubiq/src/devtools/hash.rs, crates/ubiq/src/devtools/jwt.rs, crates/ubiq/src/devtools/lorem.rs, crates/ubiq/src/devtools/time.rs, crates/ubiq/src/devtools/uuids.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
@@ -155,15 +155,27 @@ away.
 in internal browser* in the ⌘K navigator (`NavAction::OpenBrowser`, `Group::Browser`) opens a tab on
 the typed address or search; ctrl/⌘-click and `target=_blank` open another beside it. The tab's
 action bar carries Back and Forward, a loader that becomes a pulsing Stop while a page loads, the
-address field with a dropdown of the project's history, and a ⋯ menu with page zoom and, on macOS,
-*Copy screenshot*. The field sends a query to the **search engine** of the Ubiq settings' Browser
+address field with a dropdown of the project's history, a Go button that does what Enter does (and
+reloads when the field is unchanged), and a ⋯ menu with page zoom, the page **width** and, on
+macOS, *Copy screenshot*. The width is per tab and never saved: *fill the tab* (the default),
+Mobile 390, Tablet 768, Desktop 1280 or a custom width (`kit::prompt_modal` at the window root, rung `Layer::BrowserWidth` just above the size
+prompt's, 200–4096 px). A set
+width narrows the webview's own rectangle, centred and clamped to the tab, so the page reflows as
+it would on that screen; the user agent and pixel density stay the desktop's. A tab is loading from
+the moment it is opened or an address is entered, not from the page's commit: a server that is
+slow or refuses the connection never commits, and the loader lets go after 30s. A move within the
+page (the address differs only after `#`) is not a load. On macOS ⌘C/⌘X/⌘V/⌘A/⌘Z/⇧⌘Z go to the
+page when it holds the keyboard (`web_view::forward_edit_key` sends `copy:`/`paste:`/… down the
+webview's responder chain), and to the address field or wherever gpui's focus is otherwise. The field sends a query to the **search engine** of the Ubiq settings' Browser
 section (`UiSettings.search_engine`). Cookies and storage live in a **profile**: the project's own
 by default, kept when *Persist profile* is on in both the Ubiq and the project settings' Browser
 sections, or an ephemeral private store when the project's *Private profile* is on
 (`ViewPrefs`). The project's Browser section also clears its history and resets the profile; the
 history is host-kept (`BrowserHistory*`, [`transport-contract.md`](../tech/transport-contract.md)).
 An agent whose definition names the `ubiq-browser` MCP server drives the same tabs, in the one window
-the host picks. The tab is a native view stacked over the window, so an overlay that must cover it
+the host picks — including `browser_screenshot` (the visible page as an MCP image, scaled to
+`max_dimension`, default 1568; macOS only) and `browser_set_viewport` (the same width setting;
+`browser_info` reports it as `viewport` and the laid-out width as `viewport_width`). The tab is a native view stacked over the window, so an overlay that must cover it
 hides it while it is down (`ui::shell::overlaid`). Tabs are not saved in the arrangement (`G455`).
 
 **Two kinds of screen stand over the same records, and the split is the point** — `D47`. Agents is

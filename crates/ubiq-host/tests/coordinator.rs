@@ -734,6 +734,7 @@ fn a_diff_answers_the_window_that_asked_and_no_other() {
         base: DiffBase::Head,
         old: None,
         new: None,
+        ignore_eol: false,
     });
 
     let diff = loop {
@@ -779,6 +780,7 @@ fn a_diff_in_a_project_with_no_version_control_is_refused() {
         base: DiffBase::Head,
         old: None,
         new: None,
+        ignore_eol: false,
     });
 
     loop {

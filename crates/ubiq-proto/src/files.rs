@@ -329,6 +329,10 @@ pub struct FileDiff {
     /// The host stopped at a ceiling, so the hunks are a prefix of the change rather than all of
     /// it. The interface says so rather than drawing a file as smaller than its change.
     pub truncated: bool,
+    /// Echoed: whether line endings were ignored, so a reply for the other setting can be told
+    /// from the one asked for.
+    #[serde(default)]
+    pub ignore_eol: bool,
 }
 
 /// What went wrong for one path.

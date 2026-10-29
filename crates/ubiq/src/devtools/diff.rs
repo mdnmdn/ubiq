@@ -71,6 +71,7 @@ pub fn line_diff(old: &str, new: &str) -> FileDiff {
         hunks,
         binary: false,
         truncated,
+        ignore_eol: false,
     }
 }
 

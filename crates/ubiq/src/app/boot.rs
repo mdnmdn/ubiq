@@ -1750,6 +1750,17 @@ impl AppState {
         // checkbox would be one more thing to keep in step.
         subscriptions.push(super::vim::install(window, cx));
 
+        // The edit keys belong to a browser page the user clicked into, not to whatever gpui has
+        // focused: `ui::web_view::forward_edit_key` says why.
+        let handle = window.window_handle();
+        subscriptions.push(cx.intercept_keystrokes(move |event, window, cx| {
+            if window.window_handle() == handle
+                && crate::ui::web_view::forward_edit_key(&event.keystroke, window, cx)
+            {
+                cx.stop_propagation();
+            }
+        }));
+
         // This window's connection to the local host, which is process-wide and already running.
         // The window never starts one: two hosts would race the catalogue and disagree about what
         // exists. `Bus` wraps it and holds the remote connections attached beside it — see
@@ -1897,6 +1908,7 @@ impl AppState {
             browser_polling: false,
             browser_pending: Default::default(),
             browser_more: None,
+            browser_width_prompt: None,
             logs: LogState::default(),
             search: SearchState::new(search_query.clone()),
             suggest: None,

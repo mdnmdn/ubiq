@@ -385,7 +385,11 @@ fn handle(
             .spawn(move || {
                 let _slot = slot;
                 let result = super::browser::call(&name, &arguments, &facts, &voice, &reach);
-                let _ = request.respond(json_response(&envelope(&id, tool_result(result))));
+                let result = match name.as_str() {
+                    "browser_screenshot" => image_result(result),
+                    _ => tool_result(result),
+                };
+                let _ = request.respond(json_response(&envelope(&id, result)));
             });
         if let Err(error) = spawned {
             tracing::error!("a browser call could not be served on a thread of its own: {error}");
@@ -790,6 +794,31 @@ fn tool_result(result: Result<Value, String>) -> Value {
     }
 }
 
+/// A result whose JSON carries a PNG under `png_base64`: the picture as MCP `image` content, so a
+/// vision model sees it, and what else the window said as text beside it.
+fn image_result(result: Result<Value, String>) -> Value {
+    let mut value = match result {
+        Ok(value) => value,
+        Err(error) => return tool_error(&error),
+    };
+    let Some(png) = value
+        .as_object_mut()
+        .and_then(|object| object.remove("png_base64"))
+        .and_then(|png| png.as_str().map(str::to_string))
+        .filter(|png| !png.is_empty())
+    else {
+        return tool_error("the window sent no picture");
+    };
+    let text = serde_json::to_string(&value).unwrap_or_default();
+    json!({
+        "content": [
+            {"type": "image", "mimeType": "image/png", "data": png},
+            {"type": "text", "text": text},
+        ],
+        "isError": false,
+    })
+}
+
 fn tool_error(message: &str) -> Value {
     json!({"content": [{"type": "text", "text": message}], "isError": true})
 }
@@ -991,6 +1020,18 @@ mod tests {
         );
         assert_eq!(text(tool_result(Ok(json!({"a": 1})))), r#"{"a":1}"#);
         assert_eq!(tool_result(Err("no".into()))["isError"], true);
+    }
+
+    #[test]
+    fn a_screenshot_is_image_content_with_its_facts_beside_it() {
+        let result = image_result(Ok(json!({"tab": "browser:1", "png_base64": "iVBO"})));
+        assert_eq!(result["isError"], false);
+        assert_eq!(result["content"][0]["type"], "image");
+        assert_eq!(result["content"][0]["mimeType"], "image/png");
+        assert_eq!(result["content"][0]["data"], "iVBO");
+        assert_eq!(result["content"][1]["text"], r#"{"tab":"browser:1"}"#);
+        assert_eq!(image_result(Ok(json!({"tab": "x"})))["isError"], true);
+        assert_eq!(image_result(Err("no".into()))["isError"], true);
     }
 
     #[test]

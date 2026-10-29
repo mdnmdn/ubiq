@@ -520,6 +520,12 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| crate::ui::size::name_prompt(app, window, cx)),
         )
+        // The browser tab's custom width, raised from its `⋯` menu.
+        .children(
+            app.browser_width_prompt
+                .as_ref()
+                .map(|_| crate::ui::browser::width_prompt(app, window, cx)),
+        )
         // The theme editor, then the name prompt over it. At the window root for the reason the
         // size prompt is: the Appearance section raises the editor, the editor and the Themes row
         // both raise the prompt, and neither is where either is drawn.
@@ -855,6 +861,7 @@ fn overlaid(app: &AppState, cx: &App) -> bool {
         || workbench.all_projects.is_some()
         || workbench.file_dialog.is_some()
         || workbench.size_prompt.is_some()
+        || app.browser_width_prompt.is_some()
         || workbench.theme_editor.is_some()
         || workbench.theme_prompt.is_some()
         || workbench.confirm_close_pane.is_some()

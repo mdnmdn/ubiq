@@ -1010,6 +1010,8 @@ pub struct GitView {
     /// Side by side rather than one column. The two arrangements the diff renderer has; there is
     /// no wrap and no whitespace switch here, because the hunks the host sends have neither.
     pub split: bool,
+    /// Compare with CRLF and LF alike. On by default; the header's toggle flips it.
+    pub ignore_eol: bool,
     /// Whether the diff is on screen at all. The history is the screen's subject and the diff is
     /// what it is being read for, so the pane shuts rather than the history shrinking.
     pub diff_open: bool,
@@ -1116,6 +1118,7 @@ impl GitView {
             base: DiffBase::Head,
             diff: None,
             split: false,
+            ignore_eol: true,
             diff_open: true,
             message: String::new(),
             amend: false,

@@ -100,6 +100,26 @@ impl Profile {
     }
 }
 
+/// The viewport widths the `⋯` menu offers by name, in CSS pixels. Fill (no width) comes before
+/// them and Custom after.
+pub const VIEWPORTS: [(&str, u32); 3] = [("Mobile", 390), ("Tablet", 768), ("Desktop", 1280)];
+
+/// A typed custom width, when it is a whole number of pixels the browser will lay a page out at.
+pub fn parse_viewport(text: &str) -> Option<u32> {
+    let text = text.trim();
+    let text = text.strip_suffix("px").unwrap_or(text).trim();
+    text.parse::<u32>().ok().filter(|width| {
+        (ubiq_proto::browser::VIEWPORT_MIN..=ubiq_proto::browser::VIEWPORT_MAX).contains(width)
+    })
+}
+
+/// Whether going from `from` to `to` only moves within the page: the two differ in the fragment
+/// alone, so WebKit never commits a load for it.
+pub fn same_document(from: &str, to: &str) -> bool {
+    let base = |url: &str| url.split('#').next().unwrap_or("").to_string();
+    from != to && to.contains('#') && base(from) == base(to)
+}
+
 /// The zoom steps, as page-zoom factors.
 const ZOOMS: &[f64] = &[
     0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0,
@@ -166,6 +186,9 @@ pub struct BrowserTab {
     pub persist: bool,
     /// Page zoom, 1.0 being 100%.
     pub zoom: f64,
+    /// The width the page is laid out at, centred in the tab (and never wider than it); `None`
+    /// fills the tab. Width only: the user agent and pixel density are the tab's own.
+    pub viewport: Option<u32>,
 }
 
 impl BrowserTab {
@@ -174,8 +197,10 @@ impl BrowserTab {
             key: format!("browser:{}", NEXT.fetch_add(1, Ordering::Relaxed)),
             url: url.to_string(),
             title: String::new(),
-            loading: false,
-            loading_since: None,
+            // A tab is born loading its address: the page only says so once it commits, and one
+            // that never does (a refused connection) would otherwise show nothing happening.
+            loading: true,
+            loading_since: Some(std::time::Instant::now()),
             committed: false,
             pending_field: Some(url.to_string()),
             input: None,
@@ -183,6 +208,7 @@ impl BrowserTab {
             profile,
             persist,
             zoom: 1.0,
+            viewport: None,
         }
     }
 
@@ -402,6 +428,19 @@ mod tests {
         assert_eq!(zoom_step(0.5, false), 0.5);
         assert!(!looks_like_url("README.md"));
         assert!(!looks_like_url("src/main.rs"));
+    }
+
+    #[test]
+    fn viewports_and_fragments() {
+        assert_eq!(parse_viewport(" 390 "), Some(390));
+        assert_eq!(parse_viewport("1024px"), Some(1024));
+        assert_eq!(parse_viewport("12"), None);
+        assert_eq!(parse_viewport("wide"), None);
+        assert!(same_document("http://a/x", "http://a/x#top"));
+        assert!(same_document("http://a/x#one", "http://a/x#two"));
+        assert!(!same_document("http://a/x#one", "http://a/x"));
+        assert!(!same_document("http://a/x", "http://a/y#top"));
+        assert!(!same_document("http://a/x", "http://a/x"));
     }
 
     #[test]

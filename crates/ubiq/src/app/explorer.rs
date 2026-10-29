@@ -1568,6 +1568,7 @@ impl AppState {
                 base,
                 old: None,
                 new: None,
+                ignore_eol: true,
             });
         }
         self.remember(project, cx);

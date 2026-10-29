@@ -1565,7 +1565,7 @@ pub const SERVERS: &[ServerSpec] = &[
     ServerSpec {
         name: UBIQ_BROWSER,
         title: "Browser",
-        description: "Drive the project's internal browser tabs in Ubiq, in the window the user is watching: open and navigate pages, go back and forward, read a page's text or HTML, run JavaScript in it, and wait for a load. `tab` is the id browser_list_tabs or browser_open gave; omit it for the active browser tab. Every call fails with 'no browser window' when no Ubiq window has this project open.",
+        description: "Drive the project's internal browser tabs in Ubiq, in the window the user is watching: open and navigate pages, go back and forward, read a page's text or HTML, run JavaScript in it, wait for a load, take a screenshot of it, and lay it out at a phone, tablet or desktop width. `tab` is the id browser_list_tabs or browser_open gave; omit it for the active browser tab. Every call fails with 'no browser window' when no Ubiq window has this project open.",
         tools: &[
             ToolSpec {
                 name: "browser_list_tabs",
@@ -1650,8 +1650,32 @@ pub const SERVERS: &[ServerSpec] = &[
             },
             ToolSpec {
                 name: "browser_info",
-                description: "A browser tab's state: {tab, url, title, loading, can_go_back, can_go_forward}.",
+                description: "A browser tab's state: {tab, url, title, loading, can_go_back, can_go_forward, viewport, viewport_width}. viewport is the width set by browser_set_viewport (null when the page fills the tab); viewport_width is the width the page is laid out at now, in CSS pixels (null before it is first drawn).",
                 schema: BROWSER_TAB_ONLY,
+            },
+            ToolSpec {
+                name: "browser_screenshot",
+                description: "A picture of what a browser tab shows: the visible part of the page as a PNG image, scaled down so neither side exceeds max_dimension, with {tab, url, title, width, height} beside it. macOS only; elsewhere it fails saying so.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "tab": {"type": "string", "description": "The tab id. Omit for the active browser tab."},
+                        "max_dimension": {"type": "integer", "minimum": 16, "maximum": 16384, "default": 1568, "description": "The longest the image's width or height may be, in pixels."}
+                    },
+                    "additionalProperties": false
+                }"#,
+            },
+            ToolSpec {
+                name: "browser_set_viewport",
+                description: "Lay a browser tab's page out at a fixed width, centred in the tab, to see how it reflows — 390 for a phone, 768 for a tablet, 1280 for a desktop. Only the width changes: the user agent and pixel density stay. width null or omitted fills the tab again. A width wider than the tab is clamped to it. Returns {tab, viewport}.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "tab": {"type": "string", "description": "The tab id. Omit for the active browser tab."},
+                        "width": {"type": ["integer", "null"], "minimum": 200, "maximum": 4096, "description": "CSS pixels. Null or omitted fills the tab."}
+                    },
+                    "additionalProperties": false
+                }"#,
             },
             ToolSpec {
                 name: "browser_wait_load",

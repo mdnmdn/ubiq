@@ -20,7 +20,7 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::app::AppState;
 use crate::state::MenuId;
-use crate::state::browser::BrowserTab;
+use crate::state::browser::{self, BrowserTab};
 use crate::theme;
 use crate::ui::dock::TabInfo;
 use crate::ui::kit::controls::pulse_animation;
@@ -100,7 +100,29 @@ pub fn render(
         return div().into_any_element();
     };
     let loading = tab.loading;
-    let body = web_view::element(key).unwrap_or_else(|| {
+    // A set width is a narrower rectangle for the webview, centred, so the page truly reflows —
+    // never a zoom. `max_w_full` clamps it to a tab narrower than the width asked for.
+    let page = web_view::element(key).map(|page| match tab.viewport {
+        None => page,
+        Some(width) => div()
+            .flex()
+            .flex_1()
+            .min_w(px(0.))
+            .min_h(px(0.))
+            .justify_center()
+            .bg(theme::app_bg())
+            .child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .w(px(width as f32))
+                    .max_w_full()
+                    .min_h(px(0.))
+                    .child(page),
+            )
+            .into_any_element(),
+    });
+    let body = page.unwrap_or_else(|| {
         let notice = match web_view::SUPPORTED {
             true => "Starting the browser\u{2026}",
             false => "The internal browser is not available on this platform.",
@@ -134,7 +156,7 @@ fn bar(
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     let key = tab.key.clone();
-    let (back, forward, stop) = (key.clone(), key.clone(), key.clone());
+    let (back, forward, stop, go) = (key.clone(), key.clone(), key.clone(), key.clone());
 
     let mut row = div()
         .h(px(HEADER))
@@ -168,12 +190,35 @@ fn bar(
         row = row.child(stop_button(&key, stop, cx));
     }
     row.child(address(app, tab, window, cx))
+        // Enter's twin, for a mouse that just pasted: goes to what the field says — the page
+        // itself when nothing was changed, so it doubles as reload.
+        .child(icon_button_tip(
+            eid("browser-go", &key),
+            IconName::ArrowRight,
+            "Go to address",
+            true,
+            cx.listener(move |this, _, _, cx| {
+                this.submit_browser_bar(&go, cx);
+            }),
+        ))
         .child(more(app, tab, cx))
         .into_any_element()
 }
 
+/// What a row of the `⋯` menu does.
+#[derive(Clone, Copy)]
+enum More {
+    Screenshot,
+    /// `Some(true)` in, `Some(false)` out, `None` back to 100%.
+    Zoom(Option<bool>),
+    /// Lay the page out this wide; `None` fills the tab.
+    Viewport(Option<u32>),
+    CustomWidth,
+}
+
 /// The bar's `⋯`, in the viewer header's idiom: an icon button that puts a context menu down where
-/// it was clicked. Zoom, per tab, with the current percentage on the row that resets it.
+/// it was clicked. Zoom, per tab, with the current percentage on the row that resets it, and the
+/// width the page is laid out at, the current one ticked.
 fn more(app: &AppState, tab: &BrowserTab, cx: &mut Context<AppState>) -> AnyElement {
     let key = tab.key.clone();
     let menu = app
@@ -192,43 +237,70 @@ fn more(app: &AppState, tab: &BrowserTab, cx: &mut Context<AppState>) -> AnyElem
             }),
         )
         .h_full()
-        .tooltip(|window, cx| gpui_component::tooltip::Tooltip::new("More: zoom").build(window, cx)),
+        .tooltip(|window, cx| gpui_component::tooltip::Tooltip::new("More: zoom, width").build(window, cx)),
     );
     if let Some((_, at)) = menu {
         let percent = format!("{}%", (tab.zoom * 100.0).round() as i64);
-        let mut items = Vec::new();
+        // Rows and what they do, side by side: the menu answers by position, separators included.
+        let mut rows: Vec<(ContextItem, Option<More>)> = Vec::new();
         if web_view::SCREENSHOT {
-            items.push(ContextItem::new("Copy screenshot"));
+            rows.push((ContextItem::new("Copy screenshot"), Some(More::Screenshot)));
+            rows.push((ContextItem::separator(), None));
         }
-        items.extend([
-            ContextItem::new("Zoom in"),
-            ContextItem::new("Zoom out"),
-            ContextItem::new("Reset zoom").detail(percent),
+        rows.extend([
+            (ContextItem::new("Zoom in"), Some(More::Zoom(Some(true)))),
+            (ContextItem::new("Zoom out"), Some(More::Zoom(Some(false)))),
+            (ContextItem::new("Reset zoom").detail(percent), Some(More::Zoom(None))),
+            (ContextItem::separator(), None),
         ]);
+        let mark = |row: ContextItem, on: bool| match on {
+            true => row.detail("\u{2713}"),
+            false => row,
+        };
+        rows.push((
+            mark(ContextItem::new("Width: fill the tab"), tab.viewport.is_none()),
+            Some(More::Viewport(None)),
+        ));
+        for (name, width) in browser::VIEWPORTS {
+            rows.push((
+                mark(
+                    ContextItem::new(format!("Width: {name} {width}px")),
+                    tab.viewport == Some(width),
+                ),
+                Some(More::Viewport(Some(width))),
+            ));
+        }
+        let custom = tab
+            .viewport
+            .filter(|width| !browser::VIEWPORTS.iter().any(|(_, preset)| preset == width));
+        let mut custom_row = ContextItem::new("Width: custom\u{2026}");
+        if let Some(width) = custom {
+            custom_row = custom_row.detail(format!("{width}px \u{2713}"));
+        }
+        rows.push((custom_row, Some(More::CustomWidth)));
+
+        let (items, actions): (Vec<_>, Vec<_>) = rows.into_iter().unzip();
         let view = cx.entity();
         let target = key.clone();
         root = root.child(context_menu(
             eid("browser-more-menu", &key),
             point(px(at.0), px(at.1)),
             items,
-            crate::ui::indexed(&view, move |this, index, _, cx| {
+            crate::ui::indexed(&view, move |this, index, window, cx| {
                 this.dismiss_browser_more(cx);
-                let index = match web_view::SCREENSHOT {
-                    true => match index.checked_sub(1) {
-                        Some(index) => index,
-                        None => {
-                            this.browser_screenshot(&target, cx);
-                            return;
-                        }
-                    },
-                    false => index,
-                };
-                let step = match index {
-                    0 => Some(true),
-                    1 => Some(false),
-                    _ => None,
-                };
-                this.browser_zoom(&target, step, cx);
+                match actions.get(index).copied().flatten() {
+                    Some(More::Screenshot) => {
+                        this.browser_screenshot(&target, cx);
+                    }
+                    Some(More::Zoom(step)) => {
+                        this.browser_zoom(&target, step, cx);
+                    }
+                    Some(More::Viewport(width)) => {
+                        this.set_browser_viewport(&target, width, cx);
+                    }
+                    Some(More::CustomWidth) => this.ask_browser_width(&target, window, cx),
+                    None => {}
+                }
             }),
             crate::ui::handler(&view, |this, _, cx| this.dismiss_browser_more(cx)),
         ));
@@ -435,4 +507,37 @@ fn dropdown(app: &AppState, key: &str, cx: &mut Context<AppState>) -> AnyElement
         .h_0()
         .child(list)
         .into_any_element()
+}
+
+/// The `⋯` menu's *Custom width…* question: `kit::prompt_modal`, the window's one shape for a
+/// question with a field.
+pub fn width_prompt(
+    app: &AppState,
+    window: &gpui::Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let Some(prompt) = app.browser_width_prompt.as_ref() else {
+        return div().into_any_element();
+    };
+    let view = cx.entity();
+    let valid = browser::parse_viewport(&prompt.input.read(cx).value()).is_some();
+    let note = format!(
+        "The page is laid out this many CSS pixels wide, centred in the tab, from {} to {}. Only \
+         the width changes: the browser still says it is a desktop.",
+        ubiq_proto::browser::VIEWPORT_MIN,
+        ubiq_proto::browser::VIEWPORT_MAX,
+    );
+    crate::ui::kit::prompt_modal(
+        "browser-width",
+        "Custom page width",
+        Some(&note),
+        "Width (px)",
+        &prompt.input,
+        "Set width",
+        valid,
+        crate::ui::handler(&view, |this, _, cx| this.confirm_browser_width(cx)),
+        crate::ui::handler(&view, |this, _, cx| this.close_browser_width(cx)),
+        window,
+        cx,
+    )
 }

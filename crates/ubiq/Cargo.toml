@@ -232,6 +232,9 @@ objc2-app-kit = { version = "0.3", features = [
     "NSImage",
     "NSPasteboard",
     "NSResponder",
+    # The browser tab's edit keys: whether the window's first responder is inside a webview.
+    "NSView",
+    "NSWindow",
 ] }
 objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSError", "NSString", "NSURL"] }
 # The browser tab's "Copy screenshot": `WKWebView takeSnapshotWithConfiguration:` hands back an

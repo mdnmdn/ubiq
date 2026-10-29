@@ -105,7 +105,9 @@ history draws the hunks `DiffProjectFile` answers with, through the same rendere
 A staged row is compared as the index against HEAD (`DiffBase::Staged`, what a commit would carry),
 an unstaged row as the working tree against the index (`DiffBase::Index`, what is not staged yet)
 and a conflicted row as the working tree against HEAD. The pane shuts rather than the history
-shrinking, and switches between unified and side by side.
+shrinking, and switches between unified and side by side. An "ignore line endings" pill in its
+header (on by default) sends `ignore_eol` with the request, so the host compares CRLF and LF alike
+and re-asks when it is flipped; diff tabs always ask with it on.
 
 **A selected commit's panel lists the files it changed** (its first parent against it, asked with `ProjectGitChanged` and answered into the same list a comparison uses) under its summary.
 

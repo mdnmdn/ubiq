@@ -881,6 +881,8 @@ pub struct AppState {
     browser_pending: HashMap<u64, browser::PendingReply>,
     /// The browser tab's open `⋯` menu: which tab, and where it was clicked.
     pub browser_more: Option<(String, (f32, f32))>,
+    /// The `⋯` menu's *Custom width…* question, while it is up.
+    pub browser_width_prompt: Option<browser::WidthPrompt>,
 
     /// Whether this window should take a project from the first catalogue that arrives. True only
     /// for the window the binary opened.

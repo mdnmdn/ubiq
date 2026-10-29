@@ -864,6 +864,7 @@ pub enum Request {
         base: DiffBase,
         old: Option<String>,
         new: Option<String>,
+        ignore_eol: bool,
     },
     Edit {
         rel_path: String,
@@ -1050,6 +1051,7 @@ fn file_answer(project_id: ProjectId, root: &Path, request: &Request) -> Message
             base,
             old,
             new,
+            ignore_eol,
         } => diff_answer(
             project_id,
             root,
@@ -1057,6 +1059,7 @@ fn file_answer(project_id: ProjectId, root: &Path, request: &Request) -> Message
             *base,
             old.as_deref(),
             new.as_deref(),
+            *ignore_eol,
         ),
         Request::Edit {
             rel_path,
@@ -1104,8 +1107,9 @@ fn diff_answer(
     base: DiffBase,
     old: Option<&str>,
     new: Option<&str>,
+    ignore_eol: bool,
 ) -> Message {
-    match diff::diff(root, rel_path, base, old, new) {
+    match diff::diff(root, rel_path, base, old, new, ignore_eol) {
         Ok(diff) => Message::ProjectFileDiffed {
             project_id,
             rel_path: rel_path.to_string(),
@@ -1125,6 +1129,7 @@ fn diff_answer(
     _base: DiffBase,
     _old: Option<&str>,
     _new: Option<&str>,
+    _ignore_eol: bool,
 ) -> Message {
     file_error(
         project_id,

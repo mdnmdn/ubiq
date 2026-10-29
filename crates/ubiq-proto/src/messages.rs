@@ -1604,6 +1604,10 @@ pub enum Message {
         old: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         new: Option<String>,
+        /// Compare with CRLF and LF alike, so a file whose only change is its line endings has no
+        /// hunks. Absent means off: an older sender gets the byte-exact comparison it always did.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        ignore_eol: bool,
     },
     /// Create, move, copy or remove one path.
     ///

@@ -877,31 +877,54 @@ impl AppState {
     /// when the selection did not move: a second click on the row already being compared is not a
     /// second question.
     pub fn select_git_path(&mut self, side: GitSide, path: &str, cx: &mut Context<Self>) {
+        let Some(git) = self.git_view_mut(cx) else {
+            return;
+        };
+        if git.select_path(side, path) {
+            self.ask_git_diff(cx);
+            self.pending_panels
+                .push(PanelEdit::Reveal(PanelKind::GitDiff));
+        }
+        cx.notify();
+    }
+
+    /// Flip "Ignore line endings" and ask the host for the selected path's comparison again.
+    pub fn toggle_git_ignore_eol(&mut self, cx: &mut Context<Self>) {
+        let Some(git) = self.git_view_mut(cx) else {
+            return;
+        };
+        git.ignore_eol = !git.ignore_eol;
+        git.diff = None;
+        self.ask_git_diff(cx);
+        cx.notify();
+    }
+
+    /// Ask the host for the diff of the git pane's selected path, with its base and flag.
+    fn ask_git_diff(&mut self, cx: &mut Context<Self>) {
         let Some(project_id) = self.project(cx) else {
             return;
         };
         let Some(git) = self.git_view_mut(cx) else {
             return;
         };
-        let moved = git.select_path(side, path);
+        let Some(rel_path) = git.path().map(str::to_string) else {
+            return;
+        };
         let base = git.base;
+        let ignore_eol = git.ignore_eol;
         let (old, new) = if base == DiffBase::Commits {
             (git.range_from.clone(), git.range_to.clone())
         } else {
             (None, None)
         };
-        if moved {
-            self.bus.send(Message::DiffProjectFile {
-                project_id,
-                rel_path: path.to_string(),
-                base,
-                old,
-                new,
-            });
-            self.pending_panels
-                .push(PanelEdit::Reveal(PanelKind::GitDiff));
-        }
-        cx.notify();
+        self.bus.send(Message::DiffProjectFile {
+            project_id,
+            rel_path,
+            base,
+            old,
+            new,
+            ignore_eol,
+        });
     }
 
     pub fn set_git_split(&mut self, split: bool, cx: &mut Context<Self>) {

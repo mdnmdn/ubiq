@@ -190,8 +190,13 @@ pub enum BrowserEvent {
     /// A script run for a pending command finished: the token it was started under, and the
     /// webview's JSON-encoded result.
     Script { token: u64, raw: String },
-    /// A snapshot of the visible page, as PNG bytes; empty when it could not be taken.
-    Screenshot(Vec<u8>),
+    /// A snapshot of the visible page, as PNG bytes and their pixel size; empty when it could not
+    /// be taken. `token` is the command that asked, `None` for the menu's clipboard copy.
+    Screenshot {
+        token: Option<u64>,
+        png: Vec<u8>,
+        size: (u32, u32),
+    },
 }
 
 static EVENTS: std::sync::Mutex<Vec<(String, BrowserEvent)>> = std::sync::Mutex::new(Vec::new());
@@ -492,9 +497,10 @@ pub fn eval_token(key: &str, js: &str, token: u64, cx: &App) -> Result<(), Strin
 /// Whether [`screenshot`] can do anything on this platform.
 pub const SCREENSHOT: bool = cfg!(target_os = "macos");
 
-/// Snapshot the visible page; the PNG arrives as [`BrowserEvent::Screenshot`]. macOS only, through
+/// Snapshot the visible page; the PNG arrives as [`BrowserEvent::Screenshot`] under `token`,
+/// scaled down proportionally so neither side exceeds `max` when one is given. macOS only, through
 /// `WKWebView takeSnapshotWithConfiguration:completionHandler:`.
-pub fn screenshot(key: &str, cx: &App) -> Result<(), String> {
+pub fn screenshot(key: &str, max: Option<u32>, token: Option<u64>, cx: &App) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         use objc2_app_kit::NSImage;
@@ -506,18 +512,25 @@ pub fn screenshot(key: &str, cx: &App) -> Result<(), String> {
         let webview = view.read(cx).raw().webview();
         let owner = key.to_string();
         let handler = block2::RcBlock::new(move |image: *mut NSImage, _: *mut NSError| {
-            let png = unsafe { image.as_ref() }
+            let (png, size) = unsafe { image.as_ref() }
                 .and_then(|image| image.TIFFRepresentation())
                 .and_then(|tiff| {
-                    let img =
+                    let mut img =
                         image::load_from_memory_with_format(&tiff.to_vec(), image::ImageFormat::Tiff)
                             .ok()?;
+                    // `resize` keeps the aspect ratio, fitting inside the box it is given.
+                    if let Some(max) = max
+                        && (img.width() > max || img.height() > max)
+                    {
+                        img = img.resize(max, max, image::imageops::FilterType::Triangle);
+                    }
+                    let size = (img.width(), img.height());
                     let mut out = std::io::Cursor::new(Vec::new());
                     img.write_to(&mut out, image::ImageFormat::Png).ok()?;
-                    Some(out.into_inner())
+                    Some((out.into_inner(), size))
                 })
                 .unwrap_or_default();
-            push(&owner, BrowserEvent::Screenshot(png));
+            push(&owner, BrowserEvent::Screenshot { token, png, size });
         });
         let mtm = objc2::MainThreadMarker::new().ok_or("not on the main thread")?;
         let config = unsafe { WKSnapshotConfiguration::new(mtm) };
@@ -528,8 +541,23 @@ pub fn screenshot(key: &str, cx: &App) -> Result<(), String> {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (key, cx);
+        let _ = (key, max, token, cx);
         Err("screenshots are not available on this platform".to_string())
+    }
+}
+
+/// How wide the page behind `key` was last laid out, in logical pixels; `None` before its first
+/// frame on screen.
+pub fn laid_out_width(key: &str, cx: &App) -> Option<f32> {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        let width = f32::from(platform::view(key)?.read(cx).bounds().size.width);
+        (width > 0.0).then_some(width)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (key, cx);
+        None
     }
 }
 
@@ -550,9 +578,19 @@ pub fn load(key: &str, url: &str, cx: &App) -> Result<(), String> {
     }
 }
 
-/// Where the page behind `key` is now.
+/// Where the page behind `key` is now. `None` before any page has committed.
 pub fn current_url(key: &str, cx: &App) -> Option<String> {
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    // Not `wry`'s `url()` on macOS: it unwraps `WKWebView.URL`, which is nil until a page commits —
+    // a tab opened straight at an address that refuses the connection never gets one, and the
+    // panic on the UI thread took the whole window with it.
+    #[cfg(target_os = "macos")]
+    {
+        use wry::WebViewExtMacOS as _;
+        let webview = platform::view(key)?.read(cx).raw().webview();
+        let url = unsafe { webview.URL() }?;
+        url.absoluteString().map(|url| url.to_string())
+    }
+    #[cfg(target_os = "windows")]
     {
         platform::view(key)?.read(cx).raw().url().ok()
     }
@@ -569,6 +607,69 @@ pub fn close(key: &str) {
     platform::close(key);
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let _ = key;
+}
+
+/// Hand an edit shortcut to the page when a webview of `window` holds the keyboard.
+///
+/// A webview is a subview of gpui's own view, and gpui's view answers every key equivalent itself
+/// (`performKeyEquivalent:`) without passing it down — so ⌘C/⌘V/⌘X/⌘A/⌘Z reached whatever gpui
+/// had focused, usually the address field, while the page the user had clicked into never heard
+/// them. When the window's first responder is inside one of this window's webviews, the matching
+/// selector (`copy:`, `paste:` …) is sent down the responder chain from it, the way an Edit menu
+/// would, and `true` says gpui must not dispatch the key. Anywhere else this is `false` and gpui
+/// keeps the key. macOS only; Windows' WebView2 has its own keyboard focus.
+pub fn forward_edit_key(keystroke: &gpui::Keystroke, window: &Window, cx: &App) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::NSView;
+        use wry::WebViewExtMacOS as _;
+
+        let modifiers = &keystroke.modifiers;
+        if !modifiers.platform || modifiers.control || modifiers.alt || modifiers.function {
+            return false;
+        }
+        let action = match (keystroke.key.as_str(), modifiers.shift) {
+            ("c", false) => objc2::sel!(copy:),
+            ("x", false) => objc2::sel!(cut:),
+            ("v", false) => objc2::sel!(paste:),
+            ("a", false) => objc2::sel!(selectAll:),
+            ("z", false) => objc2::sel!(undo:),
+            ("z", true) => objc2::sel!(redo:),
+            _ => return false,
+        };
+        let id = window.window_handle().window_id();
+        let views: Vec<_> = platform::VIEWS.with(|views| {
+            views
+                .borrow()
+                .values()
+                .filter(|slot| slot.window == id && slot.shown)
+                .map(|slot| slot.view.clone())
+                .collect()
+        });
+        for view in views {
+            let webview = view.read(cx).raw().webview();
+            let Some(responder) = webview.window().and_then(|window| window.firstResponder())
+            else {
+                continue;
+            };
+            let inside = responder
+                .downcast_ref::<NSView>()
+                .is_some_and(|focused| focused.isDescendantOf(&webview));
+            if inside {
+                // Whether or not the page had anything to do with it (an undo with nothing to
+                // undo), the key was the page's: it must not fall through to the address field.
+                // SAFETY: a standard edit selector, sent with no argument the way a menu sends it.
+                let _ = unsafe { responder.tryToPerform_with(action, None) };
+                return true;
+            }
+        }
+        false
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (keystroke, window, cx);
+        false
+    }
 }
 
 /// Whether `key` has a live webview behind it.

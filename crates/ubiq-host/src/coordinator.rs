@@ -2710,12 +2710,14 @@ impl Coordinator {
                 base,
                 old,
                 new,
+                ignore_eol,
             } => {
                 let request = files::Request::Diff {
                     rel_path: rel_path.clone(),
                     base,
                     old,
                     new,
+                    ignore_eol,
                 };
                 self.file_job(client, project_id, &rel_path, request);
             }

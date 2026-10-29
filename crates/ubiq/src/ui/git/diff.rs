@@ -79,6 +79,12 @@ fn header(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         .child(mono(path, theme::text_muted()))
         .child(div().flex_1().min_w(px(0.)))
         .child(choice_pill(
+            "git-diff-eol",
+            "ignore line endings",
+            git.ignore_eol,
+            cx.listener(|this, _, _, cx| this.toggle_git_ignore_eol(cx)),
+        ))
+        .child(choice_pill(
             "git-diff-split",
             "split",
             git.split,

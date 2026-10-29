@@ -57,6 +57,7 @@ pub fn diff(
     base: DiffBase,
     old: Option<&str>,
     new: Option<&str>,
+    ignore_eol: bool,
 ) -> Result<FileDiff, FileError> {
     let resolved = match path::resolve(root, rel_path) {
         Ok(file) => Some(file),
@@ -127,6 +128,7 @@ pub fn diff(
             hunks: Vec::new(),
             binary: true,
             truncated: false,
+            ignore_eol,
         });
     }
     if over_ceiling
@@ -138,6 +140,7 @@ pub fn diff(
             hunks: Vec::new(),
             binary: false,
             truncated: true,
+            ignore_eol,
         });
     }
 
@@ -146,14 +149,25 @@ pub fn diff(
     // problem to draw rather than a reason to refuse the whole comparison.
     let old = String::from_utf8_lossy(&old_bytes);
     let new = String::from_utf8_lossy(&new_bytes);
-    let (hunks, truncated) = hunks(&old, &new);
+    let (hunks, truncated) = compare(&old, &new, ignore_eol);
 
     Ok(FileDiff {
         base,
         hunks,
         binary: false,
         truncated,
+        ignore_eol,
     })
+}
+
+/// The hunks between two texts. With `ignore_eol`, CRLF and a lone CR become LF first, so a line
+/// differing only in its terminator is equal.
+fn compare(old: &str, new: &str, ignore_eol: bool) -> (Vec<DiffHunk>, bool) {
+    if !ignore_eol {
+        return hunks(old, new);
+    }
+    let unix = |text: &str| text.replace("\r\n", "\n").replace('\r', "\n");
+    hunks(&unix(old), &unix(new))
 }
 
 /// The blob the checked-out commit holds for this path, if it holds one.
@@ -329,4 +343,17 @@ fn unborn(error: &git2::Error) -> bool {
 /// not a wiring mistake, and only the missing-repository case is a refusal.
 fn failed(error: git2::Error) -> FileError {
     FileError::Failed(error.message().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compare;
+
+    #[test]
+    fn a_line_ending_only_change_has_no_hunks_when_ignored() {
+        let (hunks, _) = compare("a\nb\nc\n", "a\r\nb\r\nc\r\n", true);
+        assert!(hunks.is_empty());
+        let (hunks, _) = compare("a\nb\nc\n", "a\r\nb\r\nc\r\n", false);
+        assert!(!hunks.is_empty());
+    }
 }

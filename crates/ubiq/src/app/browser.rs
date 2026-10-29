@@ -279,7 +279,9 @@ impl AppState {
                 }
                 InputEvent::Focus => this.open_browser_dropdown(&tab_key, cx),
                 InputEvent::Blur => this.close_browser_dropdown(&tab_key, cx),
-                InputEvent::PressEnter { .. } => this.submit_browser_bar(&tab_key, cx),
+                // Enter is `BrowserEnter`'s, bound on the bar: GPUI tries it whether or not the
+                // input's own Enter ran first, so answering `PressEnter` too navigated twice.
+                _ => {}
             },
         );
         if let Some(tab) = self
@@ -384,7 +386,15 @@ impl AppState {
                 self.finish_browser_script(token, raw, cx);
                 return;
             }
-            BrowserEvent::Screenshot(png) => {
+            BrowserEvent::Screenshot {
+                token: Some(token),
+                png,
+                size,
+            } => {
+                self.finish_browser_screenshot(token, png, size);
+                return;
+            }
+            BrowserEvent::Screenshot { png, .. } => {
                 if !png.is_empty() {
                     cx.write_to_clipboard(gpui::ClipboardItem::new_image(&gpui::Image::from_bytes(
                         gpui::ImageFormat::Png,
@@ -436,8 +446,10 @@ impl AppState {
                 state.record(&url, &title);
                 visit = Some((url, title));
             }
-            // The handler also hears subframes, so only the webview's own `url()` is trusted.
-            BrowserEvent::Navigated(_) => {
+            // The handler also hears subframes, so only the webview's own `url()` is trusted — and
+            // not while a load is under way: until it commits that is still the old page, and
+            // writing it back would undo the address just entered.
+            BrowserEvent::Navigated(_) if !tab.loading => {
                 if let Some(live) = live.filter(|live| !live.is_empty()) {
                     tab.url = live.clone();
                     tab.pending_field = Some(live);
@@ -697,9 +709,16 @@ impl AppState {
         else {
             return false;
         };
+        // Loading from the press, not from the page: `LoadStarted` is the commit, and a slow or
+        // refused server never commits — the bar would show nothing at all. A load that never
+        // ends (a refused connection) is let go after `LOADING_MAX`. A move within the page
+        // commits nothing and is never a load.
+        if !browser::same_document(&tab.url, &url) {
+            tab.loading = true;
+            tab.loading_since = Some(Instant::now());
+        }
         tab.url = url.clone();
         tab.pending_field = Some(url.clone());
-        // `loading` is the page's to set (`LoadStarted`): a hash navigation never reports an end.
         // No webview yet means the tab has not been drawn: it will be built at `tab.url`.
         if web_view::is_open(id) {
             let _ = web_view::load(id, &url, cx);
@@ -796,6 +815,8 @@ enum Pending {
     Back,
     Forward,
     Info,
+    /// A snapshot, answered by `finish_browser_screenshot` rather than by a script.
+    Screenshot,
 }
 
 /// One command waiting on a script: whose it is, and what to make of the answer.
@@ -1000,7 +1021,9 @@ impl AppState {
             | BrowserCmd::Close { tab }
             | BrowserCmd::GetContent { tab, .. }
             | BrowserCmd::Eval { tab, .. }
-            | BrowserCmd::Info { tab } => tab.as_deref(),
+            | BrowserCmd::Info { tab }
+            | BrowserCmd::Screenshot { tab, .. }
+            | BrowserCmd::SetViewport { tab, .. } => tab.as_deref(),
             BrowserCmd::ListTabs | BrowserCmd::Open { .. } => None,
         };
         let id = match self.resolve_browser_tab(project, wanted) {
@@ -1041,16 +1064,51 @@ impl AppState {
                     // answer from what the UI knows, and say there is nowhere to go.
                     false => {
                         let (url, title, loading) = self.browser_facts(project, &id);
+                        let (viewport, viewport_width) =
+                            self.browser_viewport_facts(project, &id, cx);
                         self.browser_reply(
                             project,
                             req,
                             Ok(json!({
                                 "tab": id, "url": url, "title": title, "loading": loading,
                                 "can_go_back": false, "can_go_forward": false,
+                                "viewport": viewport, "viewport_width": viewport_width,
                             })),
                         );
                     }
                 }
+            }
+            BrowserCmd::Screenshot { max_dimension, .. } => {
+                if !web_view::SCREENSHOT {
+                    self.browser_reply(
+                        project,
+                        req,
+                        Err("browser_screenshot is only available on macOS".to_string()),
+                    );
+                    return;
+                }
+                let token = TOKENS.fetch_add(1, Ordering::Relaxed);
+                match web_view::screenshot(&id, Some(max_dimension), Some(token), cx) {
+                    // Answered when the picture arrives, or by `expire_browser_waits` when WebKit
+                    // never delivers one.
+                    Ok(()) => {
+                        self.browser_pending.insert(
+                            token,
+                            PendingReply {
+                                project,
+                                req_id: req,
+                                tab: id,
+                                what: Pending::Screenshot,
+                                deadline: Instant::now() + REPLY_DEADLINE,
+                            },
+                        );
+                    }
+                    Err(err) => self.browser_reply(project, req, Err(err)),
+                }
+            }
+            BrowserCmd::SetViewport { width, .. } => {
+                self.set_browser_viewport(&id, width, cx);
+                self.browser_reply(project, req, Ok(json!({"tab": id, "viewport": width})));
             }
             BrowserCmd::Back { .. } | BrowserCmd::Forward { .. } => {
                 let back = matches!(cmd, BrowserCmd::Back { .. });
@@ -1099,7 +1157,10 @@ impl AppState {
             return;
         };
         let (url, title, loading) = self.browser_facts(project, &tab);
+        let (viewport, viewport_width) = self.browser_viewport_facts(project, &tab, cx);
         let result = match what {
+            // A script's answer never finishes a snapshot; the token is not one a script holds.
+            Pending::Screenshot => return,
             Pending::Eval => match serde_json::from_str::<Value>(&unquote(&raw)) {
                 Ok(answer) if answer["ok"] == true => {
                     Ok(json!({"tab": tab, "value": answer["v"].clone()}))
@@ -1132,6 +1193,7 @@ impl AppState {
                     Pending::Info => Ok(json!({
                         "tab": tab, "url": url, "title": title, "loading": loading,
                         "can_go_back": can_back, "can_go_forward": can_forward.unwrap_or(false),
+                        "viewport": viewport, "viewport_width": viewport_width,
                     })),
                     Pending::Back if !can_back => Err("no page to go back to".to_string()),
                     Pending::Forward if can_forward == Some(false) => {
@@ -1152,6 +1214,125 @@ impl AppState {
 
     /// Copy a PNG of the page to the clipboard; it arrives as an event once WebKit has drawn it.
     pub fn browser_screenshot(&mut self, id: &str, cx: &mut Context<Self>) -> bool {
-        web_view::screenshot(id, cx).is_ok()
+        web_view::screenshot(id, None, None, cx).is_ok()
     }
+
+    /// A snapshot a command asked for arrived: answer it with the picture.
+    fn finish_browser_screenshot(&mut self, token: u64, png: Vec<u8>, size: (u32, u32)) {
+        let Some(PendingReply {
+            project,
+            req_id,
+            tab,
+            ..
+        }) = self.browser_pending.remove(&token)
+        else {
+            return;
+        };
+        let result = match png.is_empty() {
+            true => Err(
+                "the page could not be captured; it may not be on screen or not drawn yet"
+                    .to_string(),
+            ),
+            false => {
+                use base64::Engine as _;
+                let (url, title, _) = self.browser_facts(project, &tab);
+                Ok(json!({
+                    "tab": tab, "url": url, "title": title,
+                    "width": size.0, "height": size.1,
+                    "png_base64": base64::engine::general_purpose::STANDARD.encode(&png),
+                }))
+            }
+        };
+        self.browser_reply(project, req_id, result);
+    }
+
+    /// Lay tab `id`'s page out `width` pixels wide, or fill the tab with `None`.
+    pub fn set_browser_viewport(
+        &mut self,
+        id: &str,
+        width: Option<u32>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(tab) = self
+            .projects
+            .values_mut()
+            .find_map(|open| open.browser.tab_mut(id))
+        else {
+            return false;
+        };
+        tab.viewport = width;
+        cx.notify();
+        true
+    }
+
+    /// What `browser_info` says about a tab's width: the setting, and what it is laid out at.
+    fn browser_viewport_facts(&self, project: ProjectId, id: &str, cx: &App) -> (Value, Value) {
+        let set = self
+            .projects
+            .get(&project)
+            .and_then(|open| open.browser.tab(id))
+            .and_then(|tab| tab.viewport);
+        let laid_out = web_view::laid_out_width(id, cx).map(|width| width.round() as u32);
+        (json!(set), json!(laid_out))
+    }
+
+    // ── The custom viewport width prompt ────────────────────────────
+
+    /// Raise the custom-width question for tab `key`, seeded with its width when it has one.
+    pub fn ask_browser_width(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let seed = self
+            .projects
+            .values()
+            .find_map(|open| open.browser.tab(key))
+            .and_then(|tab| tab.viewport)
+            .map(|width| width.to_string())
+            .unwrap_or_default();
+        let input = cx.new(|cx| {
+            let mut state = InputState::new(window, cx).placeholder("390");
+            state.set_value(seed, window, cx);
+            state
+        });
+        let subscription = cx.subscribe_in(
+            &input,
+            window,
+            |this, _, event: &InputEvent, _, cx| match event {
+                InputEvent::PressEnter { .. } => this.confirm_browser_width(cx),
+                // The confirm button's enabled state follows the text.
+                _ => cx.notify(),
+            },
+        );
+        let handle = input.read(cx).focus_handle(cx);
+        window.focus(&handle, cx);
+        self.browser_width_prompt = Some(WidthPrompt {
+            key: key.to_string(),
+            input,
+            _subscription: subscription,
+        });
+        cx.notify();
+    }
+
+    pub fn close_browser_width(&mut self, cx: &mut Context<Self>) {
+        self.browser_width_prompt = None;
+        cx.notify();
+    }
+
+    /// Answer the prompt; a width out of range leaves it up.
+    pub fn confirm_browser_width(&mut self, cx: &mut Context<Self>) {
+        let Some(prompt) = &self.browser_width_prompt else {
+            return;
+        };
+        let Some(width) = browser::parse_viewport(&prompt.input.read(cx).value()) else {
+            return;
+        };
+        let key = prompt.key.clone();
+        self.browser_width_prompt = None;
+        self.set_browser_viewport(&key, Some(width), cx);
+    }
+}
+
+/// The custom viewport width question, while it is up: whose tab, and the field.
+pub struct WidthPrompt {
+    pub key: String,
+    pub input: Entity<InputState>,
+    _subscription: Subscription,
 }

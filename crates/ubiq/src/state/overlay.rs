@@ -130,6 +130,8 @@ pub enum Layer {
     /// The size preset's name prompt. Above the settings page because the Size section raises it,
     /// and it is drawn at the window root because the status bar's popover raises the same one.
     SizeNaming,
+    /// The browser tab's custom viewport width question, raised from its `⋯` menu.
+    BrowserWidth,
     /// The theme editor. Above the settings page because the Appearance section raises it, and
     /// drawn at the window root for the same reason the size prompt is.
     ThemeEditor,

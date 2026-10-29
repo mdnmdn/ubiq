@@ -1018,13 +1018,20 @@ impl AppState {
                 if let Some(open) = self.projects.get_mut(&project_id) {
                     // The Git screen's pane asked for the same comparison a diff tab would, so the
                     // one reply serves whichever of the two is waiting for this path.
+                    // The flag is echoed: a reply for the other setting — stale after a toggle, or a
+                    // tab's — is not this pane's, and a tab only ever asks with it on.
                     if open.git_view.path() == Some(rel_path.as_str())
                         && open.git_view.base == diff.base
+                        && open.git_view.ignore_eol == diff.ignore_eol
                     {
                         open.git_view.diff = Some(diff.clone());
                     }
-                    if let Some(file) = open.editor.open.iter_mut().find(|file| file.key() == key) {
-                        file.attach_diff(diff);
+                    if diff.ignore_eol {
+                        if let Some(file) =
+                            open.editor.open.iter_mut().find(|file| file.key() == key)
+                        {
+                            file.attach_diff(diff);
+                        }
                     }
                 }
                 cx.notify();

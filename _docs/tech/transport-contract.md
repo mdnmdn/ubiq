@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, agent definition (with its skills and MCP catalog), command-line, host browse, database, browser, remote-tool, connector, repository, task-source, assist, notification, web asset and carrier families, the tunnel channel beside the bus, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-10-28
-verified: 2026-10-28
+updated: 2026-10-29
+verified: 2026-10-29
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/browser.rs, crates/ubiq-proto/src/remote_tools.rs, crates/ubiq-proto/src/tunnel.rs, crates/ubiq-tunnel/src/mux.rs, crates/ubiq-host/src/browser.rs, crates/ubiq-host/src/mcp/browser.rs, crates/ubiq-host/src/mcp/remote.rs, crates/ubiq-proto/src/db.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-host/src/feedback/keychain.rs, crates/ubiq-proto/src/update.rs, crates/ubiq-host/src/updates/mod.rs, crates/ubiq-host/src/updates/feed.rs, crates/ubiq-host/src/updates/apply.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/catalog.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/runner.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
@@ -923,7 +923,8 @@ worker thread (`crates/ubiq-host/src/browser.rs`, `crates/ubiq-host/src/store/br
 **A command goes to exactly one window, chosen by the host** (`D224`): the window that owns the
 calling agent's conversation or pane, else one that has the project open, else none, and the tool
 fails at once with `no browser window`. `cmd` is a `BrowserCmd` (`list_tabs`, `open`, `navigate`,
-`back`, `forward`, `reload`, `stop`, `close`, `get_content`, `eval`, `info`); `tab` is an opaque
+`back`, `forward`, `reload`, `stop`, `close`, `get_content`, `eval`, `info`, `screenshot`,
+`set_viewport`); `tab` is an opaque
 string the window mints and owns, and `None` means the project's active browser tab in that window.
 `Open` works in a window with no browser tab yet; every other command with no tab answers
 `Err("no browser tab")`.
@@ -935,6 +936,12 @@ so a window attached to several hosts sends it back to the one that asked. The f
 the call with `the browser window did not answer within 30s`; a window that closes releases every
 command addressed to it. A navigation command replies once the navigation has *started*;
 `browser_wait_load` is host-side and polls `Info`. The server holds at most eight calls at once.
+**`Screenshot` is the one reply carrying bytes**: its JSON has the PNG base64-encoded under
+`png_base64`, already scaled by the window so neither side exceeds `max_dimension` (default
+`SCREENSHOT_MAX_DIMENSION`, 1568), and the server lifts it out into MCP `image` content with the rest
+as text beside it. The window gives up on a snapshot WebKit never delivers after 10s and replies
+with an error. `SetViewport` takes a width from `VIEWPORT_MIN` to `VIEWPORT_MAX` (200–4096), or
+`None` to fill the tab.
 
 ## The remote-tool family
 
