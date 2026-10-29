@@ -754,6 +754,16 @@ impl AppState {
         self.browser_script(id, "location.reload()", cx)
     }
 
+    /// Reload past the cache: end-to-end revalidation on macOS (`reloadFromOrigin`); elsewhere an
+    /// ordinary reload, because WebView2 has no cache-bypassing reload to call.
+    pub fn browser_hard_reload(&mut self, id: &str, cx: &mut Context<Self>) -> bool {
+        match web_view::reload_from_origin(id, cx) {
+            Ok(true) => true,
+            Ok(false) => self.browser_reload(id, cx),
+            Err(_) => false,
+        }
+    }
+
     /// Stop loading. The tab stops being "loading" at once rather than when the page says so,
     /// because a stopped load may never say.
     pub fn browser_stop(&mut self, id: &str, cx: &mut Context<Self>) -> bool {

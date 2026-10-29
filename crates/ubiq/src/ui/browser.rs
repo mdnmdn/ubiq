@@ -36,10 +36,24 @@ const LABEL_MAX: usize = 28;
 
 const CONTEXT: &str = "BrowserBar";
 const FIELD_CONTEXT: &str = "BrowserBar > Input";
+/// The whole tab — bar and page. The page's webview holds gpui's focus while the page has the
+/// keyboard (`web_view::claim_keyboard`), and ⌘ keys reach gpui's keymap before the page, so a
+/// binding here sees the key wherever the user is in the tab.
+const TAB_CONTEXT: &str = "BrowserTab";
 
 gpui::actions!(
     ubiq_browser,
-    [BrowserUp, BrowserDown, BrowserEnter, BrowserDismiss]
+    [
+        BrowserUp,
+        BrowserDown,
+        BrowserEnter,
+        BrowserDismiss,
+        BrowserZoomIn,
+        BrowserZoomOut,
+        BrowserZoomReset,
+        BrowserReload,
+        BrowserHardReload
+    ]
 );
 
 /// The address field's keys, bound for the bar and for the input inside it — the navigator's
@@ -59,7 +73,37 @@ pub fn key_bindings() -> Vec<KeyBinding> {
     ]
     .into_iter()
     .flatten()
+    .chain(tab_bindings())
     .collect()
+}
+
+/// The page's own keys, anywhere in a browser tab: zoom and reload, ⌘ on macOS and Ctrl
+/// elsewhere. A tab is deeper than the workbench, so ⇧⌘= zooms the page here and the interface
+/// everywhere else. A shifted digit or sign arrives as the character it types (⇧⌘= as `cmd-+`
+/// on a US layout) or as the key with shift, depending on the layout, so both spellings are bound.
+fn tab_bindings() -> Vec<KeyBinding> {
+    fn bind<A: gpui::Action>(key: &str, action: A) -> KeyBinding {
+        KeyBinding::new(&format!("secondary-{key}"), action, Some(TAB_CONTEXT))
+    }
+    vec![
+        bind("shift-=", BrowserZoomIn),
+        bind("+", BrowserZoomIn),
+        bind("shift-+", BrowserZoomIn),
+        bind("shift--", BrowserZoomOut),
+        bind("_", BrowserZoomOut),
+        bind("shift-0", BrowserZoomReset),
+        bind(")", BrowserZoomReset),
+        bind("r", BrowserReload),
+        bind("shift-r", BrowserHardReload),
+    ]
+}
+
+/// A [`tab_bindings`] key as the `⋯` menu shows it: `rest` after ⌘, or after `Ctrl+` off macOS.
+fn shortcut(rest: &str) -> String {
+    match cfg!(target_os = "macos") {
+        true => format!("\u{2318}{rest}"),
+        false => format!("Ctrl+{}", rest.replace('\u{21e7}', "Shift+")),
+    }
 }
 
 fn tab_of<'a>(app: &'a AppState, key: &str, cx: &gpui::App) -> Option<&'a BrowserTab> {
@@ -137,11 +181,28 @@ pub fn render(
             .into_any_element()
     });
 
+    let [zoom_in, zoom_out, zoom_reset, reload, hard] = [0; 5].map(|_| key.to_string());
     div()
         .size_full()
         .flex()
         .flex_col()
         .bg(theme::pane_bg())
+        .key_context(TAB_CONTEXT)
+        .on_action(cx.listener(move |this, _: &BrowserZoomIn, _, cx| {
+            this.browser_zoom(&zoom_in, Some(true), cx);
+        }))
+        .on_action(cx.listener(move |this, _: &BrowserZoomOut, _, cx| {
+            this.browser_zoom(&zoom_out, Some(false), cx);
+        }))
+        .on_action(cx.listener(move |this, _: &BrowserZoomReset, _, cx| {
+            this.browser_zoom(&zoom_reset, None, cx);
+        }))
+        .on_action(cx.listener(move |this, _: &BrowserReload, _, cx| {
+            this.browser_reload(&reload, cx);
+        }))
+        .on_action(cx.listener(move |this, _: &BrowserHardReload, _, cx| {
+            this.browser_hard_reload(&hard, cx);
+        }))
         .child(bar(app, tab, loading, window, cx))
         .child(body)
         .into_any_element()
@@ -205,6 +266,8 @@ fn bar(
 #[derive(Clone, Copy)]
 enum More {
     Screenshot,
+    /// `true` bypasses the cache.
+    Reload(bool),
     /// `Some(true)` in, `Some(false)` out, `None` back to 100%.
     Zoom(Option<bool>),
     /// Lay the page out this wide; `None` fills the tab.
@@ -233,7 +296,7 @@ fn more(app: &AppState, tab: &BrowserTab, cx: &mut Context<AppState>) -> AnyElem
             }),
         )
         .h_full()
-        .tooltip(|window, cx| gpui_component::tooltip::Tooltip::new("More: zoom, width").build(window, cx)),
+        .tooltip(|window, cx| gpui_component::tooltip::Tooltip::new("More: reload, zoom, width").build(window, cx)),
     );
     if let Some((_, at)) = menu {
         let percent = format!("{}%", (tab.zoom * 100.0).round() as i64);
@@ -244,9 +307,18 @@ fn more(app: &AppState, tab: &BrowserTab, cx: &mut Context<AppState>) -> AnyElem
             rows.push((ContextItem::separator(), None));
         }
         rows.extend([
-            (ContextItem::new("Zoom in"), Some(More::Zoom(Some(true)))),
-            (ContextItem::new("Zoom out"), Some(More::Zoom(Some(false)))),
-            (ContextItem::new("Reset zoom").detail(percent), Some(More::Zoom(None))),
+            (ContextItem::new("Reload").detail(shortcut("R")), Some(More::Reload(false))),
+            (
+                ContextItem::new("Reload, bypassing the cache").detail(shortcut("\u{21e7}R")),
+                Some(More::Reload(true)),
+            ),
+            (ContextItem::separator(), None),
+            (ContextItem::new("Zoom in").detail(shortcut("\u{21e7}=")), Some(More::Zoom(Some(true)))),
+            (ContextItem::new("Zoom out").detail(shortcut("\u{21e7}-")), Some(More::Zoom(Some(false)))),
+            (
+                ContextItem::new("Reset zoom").detail(format!("{percent}  {}", shortcut("\u{21e7}0"))),
+                Some(More::Zoom(None)),
+            ),
             (ContextItem::separator(), None),
         ]);
         let mark = |row: ContextItem, on: bool| match on {
@@ -287,6 +359,12 @@ fn more(app: &AppState, tab: &BrowserTab, cx: &mut Context<AppState>) -> AnyElem
                 match actions.get(index).copied().flatten() {
                     Some(More::Screenshot) => {
                         this.browser_screenshot(&target, cx);
+                    }
+                    Some(More::Reload(false)) => {
+                        this.browser_reload(&target, cx);
+                    }
+                    Some(More::Reload(true)) => {
+                        this.browser_hard_reload(&target, cx);
                     }
                     Some(More::Zoom(step)) => {
                         this.browser_zoom(&target, step, cx);

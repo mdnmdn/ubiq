@@ -415,6 +415,33 @@ pub fn zoom(key: &str, factor: f64, cx: &App) -> Result<(), String> {
     }
 }
 
+/// Reload the page behind `key` bypassing the cache: `Ok(true)` when it was, `Ok(false)` where the
+/// platform has no such reload (the caller reloads plainly), `Err` when there is no webview.
+pub fn reload_from_origin(key: &str, cx: &App) -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        use wry::WebViewExtMacOS as _;
+        let view = platform::view(key).ok_or("no browser behind this tab")?;
+        let webview = view.read(cx).raw().webview();
+        // SAFETY: `-[WKWebView reloadFromOrigin:]`, the action form, with a nil sender; main thread.
+        let _: () = unsafe {
+            objc2::msg_send![&*webview, reloadFromOrigin: std::ptr::null::<objc2::runtime::AnyObject>()]
+        };
+        Ok(true)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        platform::view(key).ok_or("no browser behind this tab")?;
+        let _ = cx;
+        Ok(false)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (key, cx);
+        Err("an embedded browser is not available on this platform".to_string())
+    }
+}
+
 /// Clear a profile's cookies, storage and cache. `live` is a webview built on it, when one is up:
 /// its store is in use, so it is cleared in place. With none, the store itself is removed.
 pub fn reset_profile(live: Option<&str>, profile: crate::state::browser::Profile, cx: &App) {

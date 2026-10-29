@@ -156,8 +156,15 @@ in internal browser* in the ⌘K navigator (`NavAction::OpenBrowser`, `Group::Br
 the typed address or search; ctrl/⌘-click and `target=_blank` open another beside it. The tab's
 action bar carries Back and Forward, a loader that becomes a pulsing Stop while a page loads, the
 address field with a dropdown of the project's history, a Go button that does what Enter does (and
-reloads when the field is unchanged), and a ⋯ menu with page zoom, the page **width** and, on
-macOS, *Copy screenshot*. The width is per tab and never saved: *fill the tab* (the default),
+reloads when the field is unchanged), and a ⋯ menu with *Reload*, *Reload, bypassing the cache*,
+page zoom (0.5×–3.0×, per tab; *Reset zoom* shows the level), the page **width** and, on macOS,
+*Copy screenshot*. Anywhere in the tab — the bar or the page holding the keyboard — `secondary-r`
+reloads, `secondary-shift-r` reloads past the cache (`reloadFromOrigin` on macOS; WebView2 has no
+such call, so Windows reloads plainly), and `secondary-shift-=`/`-`/`0` zoom the page in, out and
+back to 100% (`ui::browser::tab_bindings`, context `BrowserTab`; ⌘ on macOS, Ctrl elsewhere; the
+shifted spellings `+`/`_`/`)` are bound too). The tab is deeper than `Workbench`, so there
+⇧⌘= zooms the page rather than the interface, and off macOS Ctrl+Shift+- zooms out rather than
+going forward (`NavForward`) — except in the address field, where `Input`'s binding is deeper. The width is per tab and never saved: *fill the tab* (the default),
 Mobile 390, Tablet 768, Desktop 1280 or a custom width (`kit::prompt_modal` at the window root, rung `Layer::BrowserWidth` just above the size
 prompt's, 200–4096 px). A set
 width narrows the webview's own rectangle, centred and clamped to the tab, so the page reflows as
