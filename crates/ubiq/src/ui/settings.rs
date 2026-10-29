@@ -496,11 +496,11 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::DRONES,
                 "Drones",
-                &["drone", "remote", "ubiq-drone", "ssh", "unattended"],
+                &["drone", "remote", "ubiq-drone", "ssh", "unattended", "tunnel", "port forward"],
                 // A drone is unattended by design — the same mark the titlebar's own agent menu
                 // wears.
                 || IconName::Bot.into(),
-                |ctx, _, cx| drones_section(ctx.app, cx),
+                |ctx, window, cx| drones_section(ctx.app, window, cx),
             )
         },
     );
@@ -5066,7 +5066,7 @@ fn ssh_profile_row(app: &AppState, profile: &SshProfile, cx: &mut Context<AppSta
 ///
 /// Drawn whether or not there are any saved ssh hosts, on [`ssh_profiles`]'s footing: a section
 /// that vanishes when the list is empty is a section nobody finds the first time they need it.
-fn drones_section(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+fn drones_section(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
     let hosts: Vec<_> = app
         .workbench
         .settings
@@ -5093,7 +5093,11 @@ fn drones_section(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         return column(rows);
     }
 
-    rows.extend(hosts.iter().map(|host| drone_host_section(app, host, cx)));
+    rows.extend(
+        hosts
+            .iter()
+            .map(|host| drone_host_section(app, host, window, cx)),
+    );
     column(rows)
 }
 
@@ -5103,6 +5107,7 @@ fn drones_section(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 fn drone_host_section(
     app: &AppState,
     host: &ubiq_proto::settings::SavedRemoteHost,
+    window: &Window,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     let host_id = host.id.clone();
@@ -5178,6 +5183,7 @@ fn drone_host_section(
                 .map(|drone| drone_row(&host_id, drone, busy, cx)),
         ),
     }
+    children.extend(tunnels_block(app, host, window, cx));
     div()
         .flex()
         .flex_col()
@@ -5188,6 +5194,94 @@ fn drone_host_section(
         .border_color(theme::border())
         .children(children)
         .into_any_element()
+}
+
+/// One saved SSH host's forwarded ports (`D227`): a status line per enabled tunnel while it is
+/// attached, and an Edit that opens the shared tunnel form in place. The form saves onto the
+/// host's record; an attached host relinks with the new list.
+fn tunnels_block(
+    app: &AppState,
+    host: &ubiq_proto::settings::SavedRemoteHost,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> Vec<AnyElement> {
+    use crate::ui::tunnels::{OnEdit, status_lines, tunnel_row};
+    let host_id = host.id.clone();
+    let mut out = vec![section_label("Tunnels").into_any_element()];
+    if let Some(form) = app.tunnel_form.as_ref().filter(|f| f.save_id == host_id) {
+        let view = cx.entity();
+        let on_edit: OnEdit = std::rc::Rc::new(|this: &mut AppState, id, edit, cx| {
+            this.edit_tunnel(id, edit, cx)
+        });
+        out.push(setting_row(
+            "Rate limit",
+            "Bytes per second over the tunnel channel, shared by every tunnel. Empty is \
+             unlimited.",
+            crate::ui::tunnels::sized_field(&form.rate, 260., window, cx),
+        ));
+        let prefix = format!("app-settings-drones-{host_id}");
+        for (spec, inputs) in form.specs.iter().zip(&form.inputs) {
+            out.push(tunnel_row(
+                &view, &prefix, spec, inputs, &on_edit, window, cx,
+            ));
+        }
+        if let Some(error) = &form.error {
+            out.push(note(error, theme::danger()));
+        }
+        out.push(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(ghost_button(
+                    ElementId::Name(format!("{prefix}-tunnel-add").into()),
+                    Some(IconName::Plus),
+                    "Add tunnel",
+                    cx.listener(|this, _, window, cx| this.add_tunnel(window, cx)),
+                ))
+                .child(ghost_button(
+                    ElementId::Name(format!("{prefix}-tunnel-cancel").into()),
+                    None,
+                    "Cancel",
+                    cx.listener(|this, _, _, cx| this.close_tunnel_form(cx)),
+                ))
+                .child(primary_button(
+                    ElementId::Name(format!("{prefix}-tunnel-save").into()),
+                    None,
+                    "Save tunnels",
+                    cx.listener(|this, _, _, cx| this.save_tunnel_form(cx)),
+                ))
+                .into_any_element(),
+        );
+        return out;
+    }
+    let enabled = host.tunnels.iter().filter(|spec| spec.enabled).count();
+    let summary = match (host.tunnels.len(), enabled) {
+        (0, _) => "None. A tunnel forwards a port on this machine to one the drone can reach."
+            .to_string(),
+        (all, on) => format!("{all} configured, {on} enabled."),
+    };
+    out.push(
+        div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_3()
+            .child(note(&summary, theme::text_faint()))
+            .child(ghost_button(
+                ElementId::Name(format!("app-settings-drones-{host_id}-tunnels-edit").into()),
+                Some(IconName::Settings),
+                "Edit tunnels",
+                cx.listener(move |this, _, window, cx| {
+                    this.open_tunnel_form(host_id.clone(), window, cx)
+                }),
+            ))
+            .into_any_element(),
+    );
+    if let Some(live) = app.tunnel_live(&host.id) {
+        out.extend(status_lines(&host.tunnels, &live));
+    }
+    out
 }
 
 /// One running drone: its roots, uptime, pane count, version (flagged on skew) and linger, with

@@ -73,6 +73,7 @@ pub mod terminal;
 pub mod themes;
 pub mod titlebar;
 pub mod tools;
+pub mod tunnels;
 pub mod viewer;
 pub mod web_view;
 pub mod work;

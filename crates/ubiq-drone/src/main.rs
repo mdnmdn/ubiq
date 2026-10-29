@@ -31,6 +31,11 @@ ubiq-drone — one machine's terminal, files and facts, over one duplex byte str
     --status [<sock>]  print one running drone's state as JSON; without a path the socket
                        is derived from the roots, as --attach does. Exits 1 if none is there
     --stop [<sock>]    ask a listening drone to end; same path rule as --status
+    --tunnel           serve the tunnel channel (forwarded ports) on standard input and
+                       output, not the bus — the second exec a window runs over ssh
+    --tunnel-allow <host:port,...>
+                       with --tunnel: what may be dialled, each side a glob (`*`); may be
+                       given more than once. The default admits everything
     --probe            print this machine's facts and exit
     --version          print the version and exit
 ";
@@ -57,6 +62,8 @@ enum Mode {
     Stop {
         path: Option<PathBuf>,
     },
+    /// The tunnel channel on standard input and output (`D227`).
+    Tunnel,
 }
 
 fn main() {
@@ -70,6 +77,7 @@ fn main() {
     let mut mode = Mode::Stdio;
     let mut linger: Option<Linger> = None;
     let mut held = false;
+    let mut tunnel_allow: Vec<String> = Vec::new();
 
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let mut at = 0;
@@ -105,6 +113,8 @@ fn main() {
                 }
             }
             "--foreground" => held = true,
+            "--tunnel" => mode = Mode::Tunnel,
+            "--tunnel-allow" => tunnel_allow.push(value(&argv, &mut at, arg)),
             "--linger" => {
                 let given = value(&argv, &mut at, arg);
                 linger = Some(Linger::parse(&given).unwrap_or_else(|why| {
@@ -150,6 +160,10 @@ fn main() {
     if let Mode::Listen { path, .. } = mode {
         mode = Mode::Listen { path, held };
     }
+    if !tunnel_allow.is_empty() && !matches!(mode, Mode::Tunnel) {
+        eprintln!("ubiq-drone: --tunnel-allow belongs to --tunnel");
+        std::process::exit(2);
+    }
 
     // On standard error, never standard output: a session's frames own standard output, and a log
     // line on it is a corrupt frame.
@@ -157,6 +171,18 @@ fn main() {
 
     match mode {
         Mode::Stdio => serve_stdio(roots),
+        Mode::Tunnel => {
+            let allow = ubiq_drone::tunnel::allow_list(&tunnel_allow).unwrap_or_else(|why| {
+                eprintln!("ubiq-drone: --tunnel-allow: {why}");
+                std::process::exit(2);
+            });
+            if let Err(error) = ubiq_drone::tunnel::serve_stdio(&allow) {
+                eprintln!("ubiq-drone: the tunnel channel's hello failed: {error}");
+                std::process::exit(1);
+            }
+            // The link ended; splices still running belong to a window that has gone.
+            std::process::exit(0);
+        }
         Mode::Attach { path } => {
             let path = path.unwrap_or_else(|| socket::socket_path_for(&roots));
             if let Err(error) = socket::attach(&path, linger) {

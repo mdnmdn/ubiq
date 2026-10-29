@@ -85,6 +85,7 @@ fn a_matching_schema_completes_the_handshake_and_serves() {
     assert_eq!(identity.message_schema, MESSAGE_SCHEMA);
     assert_eq!(identity.os, std::env::consts::OS);
     assert!(identity.has("files"), "a relay drone serves files");
+    assert!(identity.has("tunnel"), "the binary serves `--tunnel`");
     assert!(
         !identity.has("harness") && !identity.has("git"),
         "a relay drone advertises nothing it would only refuse: {:?}",

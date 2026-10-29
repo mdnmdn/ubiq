@@ -1327,6 +1327,9 @@ pub struct AppState {
     /// one machine to look at, one project to pin — and a dialog must not inherit whatever the
     /// connect modal was last pointed at. Filled by `fill_project_form`, read at Save.
     pub project_remote_root_input: Entity<InputState>,
+    /// The open Tunnels form of a saved SSH host, when one is open — its inputs are built on the
+    /// click that opens it (`app::tunnels`).
+    pub tunnel_form: Option<tunnels::TunnelForm>,
     /// The settings pages' fields. Separate from the style reference's, because a fixture's
     /// value is the thing being looked at and one state drawn on two pages is one field in two
     /// places if both were ever on screen at once — they are not, but the split matches every
@@ -1498,6 +1501,7 @@ mod stats;
 mod tasksrc;
 mod themes;
 pub use themes::theme_name_valid;
+pub mod tunnels;
 #[cfg(unix)]
 pub mod unix_connect;
 
@@ -1999,6 +2003,8 @@ pub fn focus_window(id: WindowId, cx: &mut App) {
 
 /// A window has gone. Its slot goes with it, and everything it held returns to history.
 pub fn window_closed(id: WindowId, cx: &mut App) {
+    // The window's forwarded ports go with it: they are scoped to the window that linked them.
+    tunnels::forget_window_tunnels(id);
     if cx.has_global::<WindowRegistry>() {
         cx.global_mut::<WindowRegistry>().unregister(id);
     }

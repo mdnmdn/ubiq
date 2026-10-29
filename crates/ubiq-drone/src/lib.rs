@@ -21,6 +21,8 @@
 //! - `scrollback`: where a pane's output goes while nobody is attached to see it
 //! - `state`: the state file beside a listening drone's socket, and how a caller finds, lists and
 //!   prunes them
+//! - `tunnel`: `--tunnel`, the tunnel channel (`D227`) on standard input and output — the second
+//!   exec a window runs over `ssh` for its forwarded ports
 //!
 //! **Everything it links is the lean host** — `ubiq-host` with no default features. `just relay`
 //! is the mechanical check that no gated crate reached this tree.
@@ -37,11 +39,14 @@ pub mod search;
 pub mod socket;
 pub mod state;
 pub mod tools;
+pub mod tunnel;
 
 /// What a **relay** drone advertises in its [`ubiq_proto::messages::Message::DroneHello`].
 ///
-/// `files` always, plus `harness`less version control's absence and persistence's stay refused —
-/// this build has no git library and no keychain of its own. `search` is named only when
+/// `files`, `tools` and `tunnel` always — this binary serves the tunnel channel (`D227`) as its
+/// own `--tunnel` mode, which a window over `ssh` runs as a second exec. Version control and
+/// persistence stay refused — this build has no git library and no keychain of its own. `search`
+/// is named only when
 /// [`search::probe`] actually found a tool on this machine's `PATH`: naming a capability this
 /// drone would only refuse is worse than naming none at all, since the interface would offer the
 /// user something that answers with a refusal every time. That is also why this is a function and
@@ -51,7 +56,11 @@ pub mod tools;
 /// A set of strings rather than a bitfield, so this list can grow without a schema bump: a peer
 /// that has never heard of a name simply does not ask for it.
 pub fn capabilities() -> Vec<&'static str> {
-    let mut names = vec!["files", ubiq_proto::carrier::CAP_TOOLS];
+    let mut names = vec![
+        "files",
+        ubiq_proto::carrier::CAP_TOOLS,
+        ubiq_proto::carrier::CAP_TUNNEL,
+    ];
     if search::probe().is_some() {
         names.push("search");
     }

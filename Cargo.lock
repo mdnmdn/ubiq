@@ -11998,6 +11998,7 @@ dependencies = [
  "ubiq-draw",
  "ubiq-md",
  "ubiq-proto",
+ "ubiq-tunnel",
  "ureq 3.4.2",
  "uuid",
  "webpki-roots 1.0.9",
@@ -12081,6 +12082,7 @@ dependencies = [
  "tracing",
  "ubiq-host",
  "ubiq-proto",
+ "ubiq-tunnel",
 ]
 
 [[package]]

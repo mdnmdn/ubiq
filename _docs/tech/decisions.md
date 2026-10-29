@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-10-28
+updated: 2026-10-29
 verified: 2026-10-08
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -5606,7 +5606,9 @@ carrier's own multiplexing does that, and tunnel bytes pass no hub, no tape and 
 
 **Cost:** every carrier needs a second channel, set up, torn down and bridged on its own, and a
 carrier that cannot open one — a plain socket host today — has no tunnels; the framing is shared
-but the channel's lifecycle is a second thing to get right per carrier.
+but the channel's lifecycle is a second thing to get right per carrier. What every carrier shares
+is the window's registry (`ubiq_tunnel::global`), so a carrier contributes only its dial: over
+`ssh` the second exec is `ubiq-drone --tunnel`, over RDP Studio's bridged socket.
 
 ## Related docs
 

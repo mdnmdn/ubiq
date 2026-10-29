@@ -228,6 +228,7 @@ impl AppState {
             self.workbench.settings.failed_hosts.remove(&host.address);
             self.workbench.settings.reconnects.remove(&key);
             self.workbench.remote_manager.tests.remove(&key);
+            self.forget_ssh_tunnels(&host.id);
         }
         self.remember_host_settings();
         cx.notify();

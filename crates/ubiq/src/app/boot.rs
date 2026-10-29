@@ -2056,6 +2056,7 @@ impl AppState {
             remote_root_input,
             remote_rename_input,
             project_remote_root_input,
+            tunnel_form: None,
             sink_search,
             sink_harness_name,
             sink_harness_exec,

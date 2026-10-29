@@ -1326,6 +1326,7 @@ impl AppState {
                     cx,
                 );
                 self.bus.set_remote_caps(host_id, identity.capabilities);
+                self.link_ssh_tunnels(host_id);
                 self.workbench.settings.failed_hosts.remove(&address);
             }
             Err(failure) => {
@@ -1535,6 +1536,7 @@ impl AppState {
                     cx,
                 );
                 self.bus.set_remote_caps(host_id, identity.capabilities);
+                self.link_ssh_tunnels(host_id);
                 self.workbench.settings.failed_hosts.remove(&address);
                 if let Some(state) = &mut self.workbench.remote_connect {
                     state.step = RemoteConnectStep::Connected { label };
@@ -1764,11 +1766,13 @@ impl AppState {
             .bus
             .remote(id)
             .map(|remote| (remote.save_id.clone(), remote.address.clone()));
-        let label = self.disconnect_host(id, cx);
+        // Lost, not let go: the forwarded ports keep listening, refusing, for the reconnect.
+        let label = self.release_host(id, cx);
         tracing::warn!("remote host {label} disconnected");
         let Some((save_id, address)) = saved else {
             return;
         };
+        self.ssh_tunnels_down(&save_id);
         let key = host_secrets::key_for(&save_id, &address);
         if save_id.is_empty() && self.saved_entry(&key).is_none() {
             if let Some(address) = self.address_of_host(&label) {
@@ -1794,6 +1798,8 @@ impl AppState {
                 }
             )
         }) {
+            // No reconnect is coming on its own, so nothing for the listeners to wait for.
+            self.forget_ssh_tunnels(&save_id);
             return;
         }
         // TrustAny accepts any certificate. Auto-reconnect would re-apply that without a
@@ -2000,6 +2006,7 @@ impl AppState {
                     self.attach_remote(dial.client, label, save_id, address, RemoteScheme::Http, cx);
                 self.bus
                     .set_remote_caps(host_id, dial.identity.capabilities);
+                self.link_ssh_tunnels(host_id);
             }
             Err(failure) => {
                 let attempt = state.attempt + 1;

@@ -21,6 +21,10 @@ ubiq-proto = { path = "../ubiq-proto" }
 # crate reaches this tree.
 ubiq-db = { path = "../ubiq-db" }
 
+# The window's half of forwarded ports (`D227`): the listeners and the mux over a saved SSH host's
+# tunnel channel (`app/tunnels.rs`). A leaf over `ubiq-proto` — no GPUI, no host.
+ubiq-tunnel = { path = "../ubiq-tunnel" }
+
 # The markdown engine — a source-ranged block table — behind the block-list document view in
 # `ui/mdview/`. A leaf with no GPUI and no Ubiq crate in it.
 ubiq-md = { path = "../ubiq-md" }

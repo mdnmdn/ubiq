@@ -30,6 +30,9 @@ serde_json = "1.0"
 # its own walk and its index shortcut. Already in the graph through `ubiq-host`; named here because
 # this crate now builds an `Override` of its own rather than only reading one back.
 ignore = "0.4"
+# `--tunnel`: the drone's end of the tunnel channel (`D227`) — the mux and the dialer with its
+# allow list. A leaf over `ubiq-proto`; nothing in it reaches the host.
+ubiq-tunnel = { path = "../ubiq-tunnel" }
 
 [dev-dependencies]
 tempfile = "3"

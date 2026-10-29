@@ -465,7 +465,20 @@ impl AppState {
     /// Panes are closed *before* anything is forgotten about them — `close_pane` sends a
     /// `CloseWorkspace` that has to resolve to this host to be dropped rather than misdelivered,
     /// and forgets the pane itself as it goes. See [`Bus::drop_remote`].
+    ///
+    /// This is the user's let-go, so the host's forwarded ports stop listening too; a lost socket
+    /// goes through [`Self::release_host`] and keeps them, refusing, for the reconnect.
     pub fn disconnect_host(&mut self, id: HostId, cx: &mut Context<Self>) -> String {
+        let save_id = self.bus.remote(id).map(|remote| remote.save_id.clone());
+        let label = self.release_host(id, cx);
+        if let Some(save_id) = save_id {
+            self.forget_ssh_tunnels(&save_id);
+        }
+        label
+    }
+
+    /// [`Self::disconnect_host`] without touching the host's tunnels.
+    pub(super) fn release_host(&mut self, id: HostId, cx: &mut Context<Self>) -> String {
         let saved = self.bus.remote(id).map(|remote| {
             (
                 remote.save_id.clone(),

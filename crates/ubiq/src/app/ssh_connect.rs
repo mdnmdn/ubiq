@@ -275,6 +275,59 @@ fn dial_once(
     Ok((client, identity))
 }
 
+/// The tunnel channel over `ssh` (`D227`): a second exec beside the bus's, `ubiq-drone --tunnel`,
+/// with the window's end of the mux on its pipes at `rate_bps`. The same argv as the dial — same
+/// profile, same askpass, same drone path — and the same watchdog over the hello.
+///
+/// Blocking until the hello is exchanged. The mux's closer kills the child, so closing the link
+/// ends the far process with it.
+pub fn open_tunnel_channel(
+    profile: &SshProfile,
+    config_root: Option<&str>,
+    drone_path: Option<&str>,
+    rate_bps: Option<u64>,
+) -> Result<ubiq_tunnel::Mux, String> {
+    let drone = drone_path
+        .filter(|path| !stale_cache_path(path))
+        .map(shell_path)
+        .unwrap_or_else(|| DRONE_COMMAND.to_string());
+    let mut child = spawn_ssh_command(profile, config_root, &format!("exec {drone} --tunnel"))
+        .map_err(|failure| failure.to_string())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or("ssh gave no standard output for the tunnel channel")?;
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or("ssh gave no standard input for the tunnel channel")?;
+    let noise = drain_stderr(child.stderr.take());
+    let watchdog = Watchdog::arm(&mut child);
+    let child = Arc::new(Mutex::new(child));
+    let closing = child.clone();
+    let mux = ubiq_tunnel::Mux::window(
+        stdout,
+        stdin,
+        rate_bps,
+        Some(Box::new(move || {
+            let mut child = closing.lock().unwrap_or_else(|held| held.into_inner());
+            let _ = child.kill();
+            let _ = child.wait();
+        })),
+    );
+    watchdog.disarm();
+    // A failed hello has already run the closer: the child is gone, its stderr is all there is.
+    mux.map_err(|error| {
+        let said = noise.take();
+        let said = said.trim();
+        if said.is_empty() {
+            format!("the tunnel channel's hello failed: {error}")
+        } else {
+            format!("the tunnel channel's hello failed: {error} ({said})")
+        }
+    })
+}
+
 /// Validate the folder and hand off to [`spawn_ssh_command`], which builds the argv and starts
 /// `ssh` with all three streams piped.
 fn spawn_ssh(params: &SshDialParams, remote_command: &str) -> Result<Child, ConnectFailure> {
@@ -361,7 +414,7 @@ fn remote_command(
 ) -> String {
     let root = root.trim();
     let drone = drone_path
-        .map(shell_quote)
+        .map(shell_path)
         .unwrap_or_else(|| DRONE_COMMAND.to_string());
     let id_arg = root_id
         .map(|id| format!(" --root-id {id}"))
@@ -403,6 +456,16 @@ fn linger_arg(preset: DronePreset, linger_secs: Option<u64>) -> String {
 /// one character they cannot carry is closed, escaped and reopened.
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+/// A path on the far machine, quoted for its login shell — with a leading `~/` left to expand.
+/// Single quotes keep `~` literal, and the deployer's own cache path is `~/.cache/...`, so the home
+/// half is `"$HOME"` and only the rest is quoted.
+fn shell_path(path: &str) -> String {
+    match path.strip_prefix("~/") {
+        Some(rest) => format!("\"$HOME\"/{}", shell_quote(rest)),
+        None => shell_quote(path),
+    }
 }
 
 // ── The deployer ──────────────────────────────────────────────────────────────
@@ -478,13 +541,13 @@ pub fn ensure_drone_reporting(
     run_ssh_command(
         profile,
         config_root,
-        &format!("mkdir -p {}", shell_quote(&remote_dir)),
+        &format!("mkdir -p {}", shell_path(&remote_dir)),
     )?;
     upload(profile, config_root, &local_path, &remote_path)?;
     run_ssh_command(
         profile,
         config_root,
-        &format!("chmod +x {}", shell_quote(&remote_path)),
+        &format!("chmod +x {}", shell_path(&remote_path)),
     )?;
     Ok(remote_path)
 }
@@ -495,7 +558,7 @@ pub fn ensure_drone_reporting(
 /// propagating: a stale or missing cache is not a connect failure, it is exactly the case the
 /// three steps after this one exist to repair.
 fn cached_drone_still_matches(profile: &SshProfile, config_root: Option<&str>, path: &str) -> bool {
-    let command = format!("{} --version", shell_quote(path));
+    let command = format!("{} --version", shell_path(path));
     match run_ssh_command(profile, config_root, &command) {
         Ok(output) => output.trim() == ubiq_proto::drone::manifest::VERSION,
         Err(_) => false,
@@ -1082,6 +1145,20 @@ mod tests {
             remote_command("/srv/proj", DronePreset::Managed, None, None, path),
             "'/opt/my drone/ubiq-drone' --listen --root '/srv/proj' --linger never >/dev/null && \
              exec '/opt/my drone/ubiq-drone' --attach --root '/srv/proj' --linger never"
+        );
+    }
+
+    /// The deployer's `~/.cache/...` path has to reach the far shell with its `~` expandable.
+    #[test]
+    fn a_home_relative_drone_path_expands_on_the_far_shell() {
+        assert_eq!(
+            shell_path("~/.cache/ubiq/drone/v 1/ubiq-drone"),
+            "\"$HOME\"/'.cache/ubiq/drone/v 1/ubiq-drone'"
+        );
+        assert_eq!(shell_path("/opt/it's/drone"), "'/opt/it'\\''s/drone'");
+        assert_eq!(
+            remote_command("", DronePreset::Attached, None, None, Some("~/bin/ubiq-drone")),
+            "\"$HOME\"/'bin/ubiq-drone' --stdio"
         );
     }
 

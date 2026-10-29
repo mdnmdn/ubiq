@@ -7,7 +7,7 @@ summary: One small executable Ubiq places on a machine it is not running on, ser
 read_when: you are changing how Ubiq reaches a machine it is not running on — the drone binary, its handshake, its lifetime, its deployment, or the SSH profiles and surfaces behind it
 updated: 2026-10-29
 verified: 2026-10-29
-code_anchors: [crates/ubiq-drone/src/main.rs, crates/ubiq-drone/src/lib.rs, crates/ubiq-drone/src/relay.rs, crates/ubiq-drone/src/socket.rs, crates/ubiq-drone/src/held.rs, crates/ubiq-drone/src/linger.rs, crates/ubiq-drone/src/state.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-drone/src/scrollback.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-proto/src/drone/mod.rs, crates/ubiq-proto/src/drone/manifest.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/ssh.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/app/unix_connect.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/ext/origin.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-app/src/lib.rs, _tools/drone.py]
+code_anchors: [crates/ubiq-drone/src/main.rs, crates/ubiq-drone/src/lib.rs, crates/ubiq-drone/src/relay.rs, crates/ubiq-drone/src/socket.rs, crates/ubiq-drone/src/held.rs, crates/ubiq-drone/src/linger.rs, crates/ubiq-drone/src/state.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-drone/src/scrollback.rs, crates/ubiq-drone/src/tunnel.rs, crates/ubiq/src/app/tunnels.rs, crates/ubiq/src/ui/tunnels.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-proto/src/drone/mod.rs, crates/ubiq-proto/src/drone/manifest.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/ssh.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/app/unix_connect.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/ext/origin.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-app/src/lib.rs, _tools/drone.py]
 depends_on: [tech-architecture, tech-transport, tech-structure, wip-drone]
 review_cycle: monthly
 ---
@@ -35,8 +35,8 @@ coordinator routes through and not as a new message family. The interface reache
 reaches a `ubiq --serve` host, so host routing, the Hosts menu, project listing and disconnect carry
 it unchanged. The local coordinator never learns that a drone exists.
 
-**A drone is reached over the SSH exec channel's own stdio.** No port is forwarded and no tunnel is
-built: Ubiq spawns the system `ssh` with piped stdio and speaks the framed protocol over those
+**A drone is reached over the SSH exec channel's own stdio.** The bus needs no forwarded port: Ubiq
+spawns the system `ssh` with piped stdio and speaks the framed protocol over those
 pipes. Ubiq never parses `ssh` output for structure — what comes back is an exit code and bytes.
 
 ### The handshake
@@ -52,7 +52,8 @@ the project family, `ListShells` and `HostInfo`. A mismatch is answered with a r
 sentence the connect modal shows verbatim, and both sides close cleanly.
 
 **A capability is advertised only once it has been probed** (`D135`). A relay drone says `files`,
-and says `search` as well only when it found a search tool to serve it with. Naming a capability the
+`tools` and `tunnel` (its binary serves `--tunnel`, the tunnel channel's second exec), and says
+`search` as well only when it found a search tool to serve it with. Naming a capability the
 drone would answer with a refusal is worse than naming none, because the interface would offer the
 user something that fails.
 
@@ -314,6 +315,14 @@ same path on the wrong machine; there is no reply to refuse with, so the tree re
   Stop behind a danger confirm, since stopping kills every pane the drone holds. Version skew is
   flagged on the row rather than hidden: a managed drone outlives the Ubiq that deployed it, and the
   one remedy is stop, redeploy, reattach. **A drone is never hot-swapped under live panes.**
+  Under each host sits its **Tunnels** block: a summary and, while attached, a line per enabled
+  tunnel (local port → target, linked or waiting, connections, bytes, last error), and *Edit
+  tunnels*, which opens the shared tunnel form (`ui/tunnels.rs`) in place — rate limit, rows of
+  TCP (local port → host:port) or HTTP (local port → remote URL, *Rewrite Host header* with an
+  optional value, *Rewrite host in contents* with its content types, *Skip certificate check* for
+  `https`). Saving writes `SavedRemoteHost.tunnels` and relinks an attached host. The forwarding
+  itself is a second `ssh` exec, `ubiq-drone --tunnel`
+  ([`../tech/transport-contract.md`](../tech/transport-contract.md), *The tunnel channel*).
 - **The project dialog's Remote panel** edits the project's origin — runs here, or on a drone with a
   profile or a contributed carrier's target, a folder and a preset — and a form agreeing with the
   record writes nothing.

@@ -12,6 +12,8 @@
 //!   [`ubiq_proto::settings::TunnelSpec`], each accepted socket an `Open` on the attached mux. The
 //!   listeners outlive the link — with none attached they refuse, and [`TunnelManager::attach`]
 //!   puts a new one under them.
+//! - [`Registry`] keeps one manager per saved target, process-wide ([`global`]), under a key the
+//!   carrier chooses: link, down, reconfigure, forget. The carrier is only the dial it hands in.
 //! - [`serve`] is the drone's half: dial what an `Open` names, if the [`AllowList`] admits it.
 //!
 //! Plain threads throughout, two per stream and one per listener: nothing on either end runs an
@@ -22,9 +24,11 @@ mod local;
 mod mux;
 mod pipe;
 mod rate;
+mod registry;
 mod remote;
 mod tls;
 
 pub use local::{TunnelManager, TunnelStatus};
+pub use registry::{Dial, Live, Registry, global};
 pub use mux::{Incoming, Mux, Recv, TunnelStream};
 pub use remote::{AllowList, serve};
