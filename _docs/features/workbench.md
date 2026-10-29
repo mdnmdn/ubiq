@@ -154,7 +154,7 @@ away.
 **The internal browser is a dock editor tab, `PanelKind::Browser`, over a raw webview** (`D224`). *Open
 in internal browser* in the ⌘K navigator (`NavAction::OpenBrowser`, `Group::Browser`) opens a tab on
 the typed address or search; ctrl/⌘-click and `target=_blank` open another beside it. The tab's
-action bar carries Back and Forward, a loader that becomes a pulsing Stop while a page loads, the
+action bar carries Back and Forward, one load button (a spinning Stop while a page loads, Reload otherwise), the
 address field with a dropdown of the project's history, a Go button that does what Enter does (and
 reloads when the field is unchanged), and a ⋯ menu with *Reload*, *Reload, bypassing the cache*,
 page zoom (0.5×–3.0×, per tab; *Reset zoom* shows the level), the page **width** and, on macOS,
@@ -185,9 +185,7 @@ or a gpui field while the page also moved its caret; so while a webview is the w
 responder gpui's view answers `inputContext` with nil (`web_view::quiet_host_input_context`, on
 every webview — browser tabs and web panels alike), and the key reaches the page once. The address
 field still refuses any edit containing a control or private-use character (U+F700–U+F8FF), as a
-second guard. The bar's
-load control is one button after Back/Forward: a spinner that stops the load while the page loads,
-the Reload button once it has finished or been stopped. The field sends a query to the **search engine** of the Ubiq settings' Browser
+second guard. The field sends a query to the **search engine** of the Ubiq settings' Browser
 section (`UiSettings.search_engine`). Cookies and storage live in a **profile**: the project's own
 by default, kept when *Persist profile* is on in both the Ubiq and the project settings' Browser
 sections, or an ephemeral private store when the project's *Private profile* is on
@@ -198,6 +196,24 @@ the host picks — including `browser_screenshot` (the visible page as an MCP im
 `max_dimension`, default 1568; macOS only) and `browser_set_viewport` (the same width setting;
 `browser_info` reports it as `viewport` and the laid-out width as `viewport_width`). The tab is a native view stacked over the window, so an overlay that must cover it
 hides it while it is down (`ui::shell::overlaid`). Tabs are not saved in the arrangement (`G455`).
+
+| Key (⌘ on macOS, Ctrl elsewhere) | Where | Does |
+|---|---|---|
+| `secondary-r` | anywhere in the tab | Reload |
+| `secondary-shift-r` | anywhere in the tab | Reload past the cache (plain reload on Windows) |
+| `secondary-shift-=` (`+`) | anywhere in the tab | Page zoom in, 0.5×–3.0× |
+| `secondary-shift--` (`_`) | anywhere in the tab | Page zoom out; on Windows/Linux it replaces `NavForward` here |
+| `secondary-shift-0` (`)`) | anywhere in the tab | Page zoom back to 100% |
+| `enter` | address field | Go to the typed address or query; reload if unchanged |
+| `up` / `down` | address field | Move in the history dropdown |
+| `escape` | address field | Close the dropdown, keeping the text |
+| ⌘C/X/V/A/Z, ⇧⌘Z | page holding the keyboard, macOS | Handed to the page |
+| arrows, Page Up/Down, Home, End, F-keys | page holding the keyboard, macOS | Left to the page |
+
+The `ubiq-browser` tools are `browser_list_tabs`, `browser_open`, `browser_navigate`, `browser_back`,
+`browser_forward`, `browser_reload`, `browser_stop`, `browser_close`, `browser_get_content`,
+`browser_eval`, `browser_info`, `browser_screenshot`, `browser_set_viewport` and `browser_wait_load`
+(`crates/ubiq-host/src/mcp/catalogue.rs`).
 
 **Two kinds of screen stand over the same records, and the split is the point** — `D47`. Agents is
 where the user *talks to* the agents; `Teams` is where the user *arranges* them. A
