@@ -1,9 +1,13 @@
 # Ubiq
 
+> [!IMPORTANT]
+> **This project has been renamed to Kubiq and has moved to a new repository:
+> <https://github.com/kubiq-studio/kubiq>.**
+> This repository is no longer where development happens — open issues, pull requests and new
+> clones there.
+
 An agentic workspace — tmux for AI coding agents. Ubiq hosts several interactive agent CLIs side by
 side, each in a real terminal pane, under one window and one set of controls.
-
-**Home:** <https://github.com/kubiq-studio/kubiq>
 
 Every harness Ubiq hosts is a full-screen terminal program: it takes over the alternate screen,
 addresses the cursor absolutely, and expects raw keystrokes back. So a pane is a genuine terminal
