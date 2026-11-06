@@ -3,6 +3,8 @@
 An agentic workspace — tmux for AI coding agents. Ubiq hosts several interactive agent CLIs side by
 side, each in a real terminal pane, under one window and one set of controls.
 
+**Home:** <https://github.com/kubiq-studio/kubiq>
+
 Every harness Ubiq hosts is a full-screen terminal program: it takes over the alternate screen,
 addresses the cursor absolutely, and expects raw keystrokes back. So a pane is a genuine terminal
 and a harness runs under a genuine pseudo-terminal — Ubiq shuttles bytes between the two and adds
